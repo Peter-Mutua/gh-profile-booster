@@ -6,6 +6,7 @@
     <title>Multi-Booster Core | Terminal Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -69,7 +70,7 @@
                     <div>
                         <div class="text-[10px] uppercase opacity-40 mb-1">Earned Work Time</div>
                         <div id="stat-wakatime" class="orbitron text-3xl text-white">00:00:00</div>
-                        <div class="h-1 w-full bg-gray-900 mt-2"><div class="h-full bg-cyan-400 w-3/4 shadow-[0_0_10px_#22d3ee]"></div></div>
+                        <div class="h-1 w-full bg-gray-900 mt-2"><div class="h-full bg-pink-500 w-3/4 shadow-[0_0_10px_#ff3366]"></div></div>
                     </div>
                     
                     <div>
@@ -94,35 +95,69 @@
                 </div>
             </div>
 
-            <div class="glass p-4 rounded-xl">
-                <div class="text-[10px] uppercase tracking-widest opacity-50 mb-2">Uptime</div>
-                <div id="stat-uptime" class="text-xs font-bold font-mono">00d 00h 00m 00s</div>
+            <div class="glass p-4 rounded-xl flex justify-between items-center">
+                <div>
+                    <div class="text-[10px] uppercase tracking-widest opacity-50 mb-1">Uptime</div>
+                    <div id="stat-uptime" class="text-xs font-bold font-mono">00d 00h 00m 00s</div>
+                </div>
             </div>
         </aside>
 
-        <!-- Main Terminal -->
-        <section class="col-span-9 flex flex-col glass rounded-xl overflow-hidden border-cyan-400/30">
-            <div class="bg-cyan-400/10 px-4 py-2 border-b border-cyan-400/30 flex justify-between items-center">
-                <div class="text-[10px] uppercase tracking-widest font-bold">Encrypted Activity Feed</div>
-                <div class="flex gap-1.5">
-                    <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
-                </div>
-            </div>
+        <!-- Main Area (Graphs + Terminal) -->
+        <section class="col-span-9 flex flex-col gap-6 h-full overflow-hidden">
             
-            <div id="logs" class="log-container flex-grow p-6 font-mono text-sm overflow-y-auto space-y-1 bg-black/40">
-                <div class="text-cyan-400/40">>> Initializing system components...</div>
+            <!-- Dynamic Graph Boards -->
+            <div class="grid grid-cols-2 gap-6 h-64 shrink-0">
+                
+                <!-- GitHub Views Graph -->
+                <div class="glass rounded-xl overflow-hidden border-cyan-400/30 flex flex-col h-full bg-black/40">
+                    <div class="bg-cyan-400/10 px-4 py-2 border-b border-cyan-400/30 text-[10px] uppercase tracking-widest font-bold text-cyan-400 flex justify-between items-center">
+                        <span>Profile Traffic (Cumulative)</span>
+                        <div class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
+                    </div>
+                    <div class="flex-grow p-4 relative">
+                        <canvas id="telemetryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- WakaTime Graph -->
+                <div class="glass rounded-xl overflow-hidden border-pink-500/30 flex flex-col h-full bg-black/40" style="border-color: rgba(255, 51, 102, 0.3);">
+                    <div class="bg-pink-500/10 px-4 py-2 border-b border-pink-500/30 text-[10px] uppercase tracking-widest font-bold text-pink-500 flex justify-between items-center">
+                        <span>Heartbeat Packets (WakaTime)</span>
+                        <div class="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse"></div>
+                    </div>
+                    <div class="flex-grow p-4 relative">
+                        <canvas id="wakatimeChart"></canvas>
+                    </div>
+                </div>
+
             </div>
 
-            <!-- Footer Command Bar -->
-            <div class="bg-black/80 px-4 py-2 text-[10px] flex justify-between items-center border-t border-cyan-400/10">
-                <div class="flex gap-4">
-                    <span>PATH: /usr/src/app/multi-booster</span>
-                    <span>ENV: PRODUCTION</span>
+            <!-- Encrypted Action Feed -->
+            <div class="flex-grow flex flex-col glass rounded-xl overflow-hidden border-cyan-400/30">
+                <div class="bg-cyan-400/10 px-4 py-2 border-b border-cyan-400/30 flex justify-between items-center">
+                    <div class="text-[10px] uppercase tracking-widest font-bold">Encrypted Activity Feed</div>
+                    <div class="flex gap-1.5">
+                        <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
+                        <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
+                        <div class="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
+                    </div>
                 </div>
-                <div id="status-text" class="text-cyan-400 animate-pulse">LISTENING FOR EVENTS...</div>
+                
+                <div id="logs" class="log-container flex-grow p-6 font-mono text-sm overflow-y-auto space-y-1 bg-black/40" style="min-height: 100px;">
+                    <div class="text-cyan-400/40">>> Initializing multi-core visualization matrices...</div>
+                </div>
+
+                <!-- Footer Command Bar -->
+                <div class="bg-black/80 px-4 py-2 text-[10px] flex justify-between items-center border-t border-cyan-400/10 shrink-0">
+                    <div class="flex gap-4">
+                        <span>PATH: /usr/src/app/multi-booster</span>
+                        <span>ENV: PRODUCTION</span>
+                    </div>
+                    <div id="status-text" class="text-cyan-400 animate-pulse">LISTENING FOR SYSTEM EVENTS...</div>
+                </div>
             </div>
+
         </section>
 
     </main>
@@ -132,25 +167,125 @@
         const logsContainer = document.getElementById('logs');
         const clockElement = document.getElementById('clock');
         
-        // Clock
+        // Clock Loop
         setInterval(() => {
             const now = new Date();
             clockElement.innerText = now.toTimeString().split(' ')[0];
         }, 1000);
 
-        // Socket Events
-        socket.on('log', (data) => {
-            const entry = document.createElement('div');
-            const timestamp = new Date().toLocaleTimeString();
-            entry.innerHTML = `<span class="opacity-30">[${timestamp}]</span> <span class="${data.level === 'error' ? 'text-red-400' : (data.level === 'warn' ? 'text-yellow-400' : 'text-cyan-400')}">${data.message}</span>`;
-            logsContainer.appendChild(entry);
-            logsContainer.scrollTop = logsContainer.scrollHeight;
-            
-            if (logsContainer.children.length > 200) {
-                logsContainer.removeChild(logsContainer.firstChild);
+        // ==========================================
+        // CHART 1: GITHUB TRAFFIC (CYAN)
+        // ==========================================
+        const ctxGithub = document.getElementById('telemetryChart').getContext('2d');
+        const gradCyan = ctxGithub.createLinearGradient(0, 0, 0, 200);
+        gradCyan.addColorStop(0, 'rgba(0, 255, 204, 0.4)');
+        gradCyan.addColorStop(1, 'rgba(0, 255, 204, 0.0)');
+
+        const neonCyan = {
+            id: 'neonCyan',
+            beforeDatasetsDraw: (chart) => {
+                const ctx = chart.ctx;
+                ctx.save();
+                ctx.shadowColor = '#00ffcc';
+                ctx.shadowBlur = 12;
+            },
+            afterDatasetsDraw: (chart) => { chart.ctx.restore(); }
+        };
+
+        const telemetryChart = new Chart(ctxGithub, {
+            type: 'line',
+            plugins: [neonCyan],
+            data: {
+                labels: Array(25).fill(''),
+                datasets: [{
+                    label: 'Profile Views',
+                    data: Array(25).fill(0),
+                    borderColor: '#00ffcc',
+                    backgroundColor: gradCyan,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.5,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 800, easing: 'easeOutQuart' },
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        display: true, beginAtZero: false,
+                        grid: { color: 'rgba(0, 255, 204, 0.1)', borderDash: [2, 4] },
+                        ticks: { color: '#00ffcc', font: { family: 'JetBrains Mono', size: 10 } }
+                    }
+                }
             }
         });
 
+        // ==========================================
+        // CHART 2: WAKATIME HEARTBEATS (PINK)
+        // ==========================================
+        const ctxWaka = document.getElementById('wakatimeChart').getContext('2d');
+        const gradPink = ctxWaka.createLinearGradient(0, 0, 0, 200);
+        gradPink.addColorStop(0, 'rgba(255, 51, 102, 0.4)');
+        gradPink.addColorStop(1, 'rgba(255, 51, 102, 0.0)');
+
+        const neonPink = {
+            id: 'neonPink',
+            beforeDatasetsDraw: (chart) => {
+                const ctx = chart.ctx;
+                ctx.save();
+                ctx.shadowColor = '#ff3366';
+                ctx.shadowBlur = 12;
+            },
+            afterDatasetsDraw: (chart) => { chart.ctx.restore(); }
+        };
+
+        const wakatimeChart = new Chart(ctxWaka, {
+            type: 'line',
+            plugins: [neonPink],
+            data: {
+                labels: Array(25).fill(''),
+                datasets: [{
+                    label: 'Code Heartbeats',
+                    data: Array(25).fill(0),
+                    borderColor: '#ff3366',
+                    backgroundColor: gradPink,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.5,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 800, easing: 'easeOutQuart' },
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        display: true, beginAtZero: false,
+                        grid: { color: 'rgba(255, 51, 102, 0.1)', borderDash: [2, 4] },
+                        ticks: { color: '#ff3366', font: { family: 'JetBrains Mono', size: 10 } }
+                    }
+                }
+            }
+        });
+
+        let nextChartUpdate = Date.now();
+
+        // Socket Logging Engine
+        socket.on('log', (data) => {
+            const entry = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="opacity-30">[${timestamp}]</span> <span class="${data.level === 'debug' ? 'text-cyan-400/50 italic' : (data.level === 'warn' ? 'text-yellow-400' : 'text-cyan-400')}">${data.message}</span>`;
+            logsContainer.appendChild(entry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+            if (logsContainer.children.length > 200) logsContainer.removeChild(logsContainer.firstChild);
+        });
+
+        // Socket Real-time Stat Sync
         socket.on('stats', (stats) => {
             document.getElementById('stat-wakatime').innerText = stats.wakatimeTime || '00:00:00';
             document.getElementById('stat-views').innerText = '+' + (stats.totalViews || 0);
@@ -166,27 +301,32 @@
                 browsingEl.innerText = 'IDLE';
                 browsingEl.classList.remove('animate-pulse', 'text-pink-500');
             }
-        });
 
-        // Add a line every few seconds if no activity
-        const initLines = [
-            ">> Neural mapping complete...",
-            ">> Bypassing standard telemetry...",
-            ">> Establishing secure handshake with wakatime.api...",
-            ">> Optimizing profile traffic patterns..."
-        ];
-        let i = 0;
-        const initInterval = setInterval(() => {
-            if (i < initLines.length) {
-                const entry = document.createElement('div');
-                entry.className = "text-cyan-400/20 italic"; // Use existing CSS classes
-                entry.innerText = initLines[i];
-                logsContainer.appendChild(entry);
-                i++;
-            } else {
-                clearInterval(initInterval);
+            // Real-time Visualizer Multi-Pipeline
+            if (Date.now() >= nextChartUpdate) {
+                const timeStr = new Date().toLocaleTimeString();
+                
+                // Pipeline 1: GitHub
+                telemetryChart.data.labels.push(timeStr);
+                telemetryChart.data.datasets[0].data.push(stats.totalViews || 0);
+                if (telemetryChart.data.labels.length > 30) {
+                    telemetryChart.data.labels.shift();
+                    telemetryChart.data.datasets[0].data.shift();
+                }
+                telemetryChart.update();
+
+                // Pipeline 2: WakaTime
+                wakatimeChart.data.labels.push(timeStr);
+                wakatimeChart.data.datasets[0].data.push(stats.totalHeartbeats || 0);
+                if (wakatimeChart.data.labels.length > 30) {
+                    wakatimeChart.data.labels.shift();
+                    wakatimeChart.data.datasets[0].data.shift();
+                }
+                wakatimeChart.update();
+                
+                nextChartUpdate = Date.now() + 1000;
             }
-        }, 1500);
+        });
     </script>
 </body>
 </html>
