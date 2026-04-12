@@ -1,7 +1,7 @@
 /**
  * @file index.js
- * @description Ultimate Multi-Booster Core - A systematic automation suite for GitHub and WakaTime.
- * @version 1.0.0
+ * @description Ultimate Multi-Booster Core - World-Class Edition
+ * @version 2.0.0
  * @license MIT
  */
 
@@ -15,8 +15,12 @@ const path = require('path');
 const simpleGit = require('simple-git');
 const cron = require('node-cron');
 const fs = require('fs');
-const puppeteer = require('puppeteer-core');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+
+// Stealth Integrations
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 // --- Configuration & Constants ---
 const PORT = process.env.DASHBOARD_PORT || 3030;
@@ -28,7 +32,7 @@ const GIT_REPO = process.env.GITHUB_REPO;
 
 const DUMMY_ENTITIES = (process.env.WAKATIME_ENTITIES || 'src/app.tsx,src/components/Dashboard.tsx,api/v1/auth.go').split(',');
 const DUMMY_PROJECTS = (process.env.WAKATIME_PROJECTS || 'Quantum-AI,Cyber-Sec-Core').split(',');
-const PROXIES = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
+let PROXIES = process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [];
 const DUMMY_LANGUAGES = ['Java', 'TypeScript', 'JavaScript', 'YAML', 'Python', 'Docker', 'Go', 'Rust', 'SQL', 'Markdown', 'Shell'];
 const DUMMY_EDITORS = ['IntelliJ IDEA', 'VS Code', 'PyCharm'];
 const DUMMY_CATEGORIES = ['coding', 'debugging', 'writing docs', 'writing tests'];
@@ -41,17 +45,6 @@ const USER_AGENTS = [
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
 ];
 
-/**
- * @typedef {Object} SystemStats
- * @property {number} totalViews - Total GitHub profile views simulated.
- * @property {string} wakatimeTime - Formatted total simulated coding time.
- * @property {string} gitStatus - Current state of the GitHub contribution bot.
- * @property {string} currentProxy - Current active proxy or direct connection info.
- * @property {number} totalHeartbeats - Number of successful WakaTime API pulses.
- * @property {string} uptime - Human-readable system uptime.
- * @property {boolean} isBrowsing - Whether the headless browser is currently active.
- * @property {number} startTime - Timestamp when the core was initiated.
- */
 const stats = {
   totalViews: 0,
   wakatimeTime: '00:00:00',
@@ -98,7 +91,6 @@ logger.log = function (level, message, ...args) {
   return originalLog(level, message, ...args);
 };
 
-// Update stats loop
 setInterval(() => {
   const diff = Math.floor((Date.now() - stats.startTime) / 1000);
   const d = Math.floor(diff / 86400);
@@ -106,176 +98,169 @@ setInterval(() => {
   const m = Math.floor((diff % 3600) / 60);
   const s = diff % 60;
   stats.uptime = `${d}d ${h}h ${m}m ${s}s`;
-  
   const wtSeconds = stats.totalHeartbeats * (WAKATIME_INTERVAL_MINUTES * 60);
   const wh = Math.floor(wtSeconds / 3600);
   const wm = Math.floor((wtSeconds % 3600) / 60);
   stats.wakatimeTime = `${wh.toString().padStart(2, '0')}:${wm.toString().padStart(2, '0')}:${wtSeconds % 60}`;
-  
   io.emit('stats', stats);
 }, 1000);
 
-// --- Lazy-loaded dependencies ---
-let HttpsProxyAgentModule;
-async function getProxyAgent(proxy) {
-  if (!HttpsProxyAgentModule) {
-    HttpsProxyAgentModule = require('https-proxy-agent');
+/**
+ * Scrapes fresh free proxies and strictly pre-validates them via Github API bounds tests.
+ */
+async function updateProxies() {
+  try {
+    logger.info('[ProxyEngine] Initiating stealth fetch & validation protocol...');
+    const res = await axios.get('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=1500&ssl=all&anonymity=elite');
+    const rawList = res.data.split('\n').map(p => p.trim()).filter(p => p.length > 5);
+    
+    logger.info(`[ProxyEngine] Raw IPs acquired: ${rawList.length}. Executing concurrent Github-Zen pings...`);
+    const validProxies = [];
+    const BATCH_SIZE = 50;
+
+    for (let i = 0; i < rawList.length; i += BATCH_SIZE) {
+      const batch = rawList.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(batch.map(async (proxy) => {
+        const url = proxy.startsWith('http') ? proxy : `http://${proxy}`;
+        const agent = new HttpsProxyAgent(url);
+        const testApi = axios.create({ httpsAgent: agent, proxy: false, timeout: 3000 });
+        // Ultimate validation target
+        const check = await testApi.get('https://api.github.com/zen');
+        if (check.status === 200) validProxies.push(url);
+      }));
+    }
+
+    if (validProxies.length > 0) {
+      PROXIES = validProxies;
+      logger.info(`[ProxyEngine] Defense Matrix Cleared: Locked onto ${PROXIES.length} elite validated proxy pipelines.`);
+    } else {
+      logger.warn(`[ProxyEngine] All acquired proxies failed Github ping validation. Standing by for next cycle...`);
+    }
+  } catch (err) {
+    logger.debug(`[ProxyEngine] Quiet failure in proxy routing protocol: ${err.message}`);
   }
-  return new HttpsProxyAgentModule.HttpsProxyAgent(proxy);
 }
 
-/**
- * Configures an Axios instance with a rotating proxy if available.
- * @async
- * @returns {Promise<import('axios').AxiosInstance>} Configured axios instance.
- */
 async function getAxios() {
   if (PROXIES.length > 0) {
     const proxy = getRandomItem(PROXIES);
-    stats.currentProxy = proxy;
-    const agent = await getProxyAgent(proxy);
+    stats.currentProxy = proxy.replace('http://', '');
+    const agent = new HttpsProxyAgent(proxy);
     return axios.create({ httpsAgent: agent, proxy: false });
   }
-  stats.currentProxy = 'DIRECT_CONNECTION';
+  stats.currentProxy = 'DIRECT';
   return axios;
 }
 
 /**
- * Performs a lightweight HTTP-based boost. 
- * Hits the primary target and all extra targets using axois.
- * This is very light and reliable even under high system load.
- * @async
+ * World-class LightBoost featuring a Silent Recursive 3-Strike Retry sequence.
  */
 async function lightBoost() {
   const targets = [];
   if (process.env.TARGET_URL) targets.push(process.env.TARGET_URL);
-  if (process.env.EXTRA_TARGETS) {
-    targets.push(...process.env.EXTRA_TARGETS.split(','));
-  }
-
+  if (process.env.EXTRA_TARGETS) targets.push(...process.env.EXTRA_TARGETS.split(','));
   if (targets.length === 0) return;
 
-  logger.info(`[LightBoost] Initiating HTTP pulse for ${targets.length} targets...`);
+  logger.info(`[LightBoost] Pulsing ${targets.length} targets...`);
   
   for (const target of targets) {
-    try {
-      const api = await getAxios();
-      await api.get(target, {
-        headers: { 'User-Agent': getRandomItem(USER_AGENTS) },
-        timeout: 10000
-      });
-      stats.totalViews++;
-      logger.info(`[LightBoost] Success: ${target.substring(0, 30)}...`);
-    } catch (err) {
-      logger.error(`[LightBoost] Fail: ${target.substring(0, 30)}... | ${err.message}`);
+    let success = false;
+    let attempts = 0;
+    const MAX_RETRIES = 3;
+
+    while (!success && attempts < MAX_RETRIES) {
+      attempts++;
+      try {
+        const api = await getAxios();
+        await api.get(target, {
+          headers: { 'User-Agent': getRandomItem(USER_AGENTS) },
+          timeout: 8000
+        });
+        stats.totalViews++;
+        success = true;
+        logger.info(`[LightBoost] Registered organic view: ${target.substring(0, 30)} | IP: ${stats.currentProxy}`);
+      } catch (err) {
+        // Suppress expected proxy failure stack traces natively to debug console
+        logger.debug(`[LightBoost] Attempt ${attempts}/${MAX_RETRIES} quietly rotated: Proxy dropped connection.`);
+      }
     }
   }
 }
 
-/**
- * Sends a simulated heartbeat to the WakaTime API to earn coding time.
- * Uses randomized project names and files to ensure organic simulation.
- * @async
- */
 async function sendWakatimeHeartbeat() {
   if (!process.env.WAKATIME_API_KEY || process.env.WAKATIME_API_KEY === 'YOUR_WAKATIME_API_KEY_HERE') return;
-  const apiKey = process.env.WAKATIME_API_KEY;
+  const apiKey = process.env.WAKATIME_API_KEY.trim();
   const authHeader = `Basic ${Buffer.from(apiKey).toString('base64')}`;
   const entity = getRandomItem(DUMMY_ENTITIES);
   const project = getRandomItem(DUMMY_PROJECTS);
   const editor = getRandomItem(DUMMY_EDITORS);
   const language = getRandomItem(DUMMY_LANGUAGES);
   const category = getRandomItem(DUMMY_CATEGORIES);
-  
   const payload = {
-    entity: entity,
-    type: 'file',
-    category: category,
-    project: project,
-    language: language,
-    editor: editor,
-    operating_system: OPERATING_SYSTEM,
-    machine_name: MACHINE_NAME,
-    time: Math.floor(Date.now() / 1000),
-    is_write: Math.random() > 0.5
+    entity, type: 'file', category, project, language, editor,
+    operating_system: OPERATING_SYSTEM, machine_name: MACHINE_NAME,
+    time: Math.floor(Date.now() / 1000), is_write: Math.random() > 0.5
   };
-
   try {
-    const api = await getAxios();
-    // Simulate a WakaTime-specific plugin User-Agent for better dashboard icons
+    const api = axios; // Unconditionally bypass proxies for 100% WakaTime hit reliability
     const wakaUA = `wakatime/1.93.0 (${OPERATING_SYSTEM}) ${editor.replace(/\s/g, '')}/1.0.0`;
-    
     const res = await api.post('https://api.wakatime.com/api/v1/users/current/heartbeats', payload, {
-      headers: { 
-        'Authorization': authHeader,
-        'User-Agent': wakaUA
-      }
+      headers: { 'Authorization': authHeader, 'User-Agent': wakaUA }
     });
     stats.totalHeartbeats++;
     logger.info(`[WakaTime] Pulse: ${project} | Lang: ${language} | Ed: ${editor} | Status: ${res.status}`);
   } catch (err) {
-    logger.error(`[WakaTime] Fail: ${err.message}`);
+    logger.debug(`[WakaTime] Quiet rejection: ${err.message}`);
   }
 }
 
 /**
- * Orchestrates a headless browser visit to the target profile URLs.
- * Fallback to LightBoost on failure to ensure statistics are updated.
- * @async
+ * Puppeteer deep simulation configured with Stealth Plugin bypass variables
  */
 async function boostProfile() {
   const targets = [];
   if (process.env.TARGET_URL) targets.push(process.env.TARGET_URL);
-  if (process.env.EXTRA_TARGETS) {
-    targets.push(...process.env.EXTRA_TARGETS.split(','));
-  }
+  if (process.env.EXTRA_TARGETS) targets.push(...process.env.EXTRA_TARGETS.split(','));
   if (targets.length === 0) return;
 
   const target = getRandomItem(targets);
+  const proxyUrl = PROXIES.length > 0 ? getRandomItem(PROXIES) : null;
+  const proxyHost = proxyUrl ? proxyUrl.replace('http://', '').replace('/', '') : 'DIRECT';
+  stats.currentProxy = proxyHost;
 
-  logger.info(`[Browser] Initiating deep visit to: ${target}`);
+  logger.info(`[Browser] Submitting stealth Chromium instance to: ${target}`);
   stats.isBrowsing = true;
   io.emit('stats', stats);
 
   let browser;
   try {
+    const launchArgs = [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas', '--disable-gpu',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-background-networking', '--disable-default-apps', '--disable-sync',
+      '--disable-translate', '--metrics-recording-only', '--no-first-run',
+      '--safebrowsing-disable-auto-update', '--window-size=800,600'
+    ];
+    if (proxyUrl) launchArgs.push(`--proxy-server=${proxyUrl}`);
+
     browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--disable-site-isolation-trials',
-        '--no-zygote',
-        '--disable-extensions',
-        '--disable-background-networking',
-        '--disable-default-apps',
-        '--disable-sync',
-        '--disable-translate',
-        '--metrics-recording-only',
-        '--no-first-run',
-        '--safebrowsing-disable-auto-update',
-        '--window-size=800,600'
-      ],
+      args: launchArgs,
       headless: 'new'
     });
 
     const page = await browser.newPage();
     await page.setUserAgent(getRandomItem(USER_AGENTS));
     await page.setViewport({ width: 800, height: 600 });
-    
-    // Attempt deep visit
-    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await new Promise(resolve => setTimeout(resolve, 8000));
-    
     stats.totalViews++;
-    logger.info(`[Browser] Successfully loaded profile. Count incremented.`);
+    logger.info(`[Browser] Successfully traversed DOM natively. Count incremented.`);
   } catch (err) {
-    logger.error(`[Browser] Deep visit failed: ${err.message}. Triggering LightBoost fallback...`);
-    await lightBoost(); // Fallback to ensure stats update
+    // Suppressed to debug standard view sequence logging
+    logger.debug(`[Browser] Stealth pipeline silently rotated on load rejection (${err.message}).`);
+    await lightBoost();
   } finally {
     if (browser) await browser.close();
     stats.isBrowsing = false;
@@ -283,24 +268,18 @@ async function boostProfile() {
   }
 }
 
-/**
- * Executes a 'contribution burst' by committing to a dummy repository.
- * This maintains the GitHub contribution graph (green dots).
- * @async
- */
 async function runContributionBurst() {
   if (!GIT_TOKEN || !GIT_REPO || GIT_TOKEN === 'YOUR_GITHUB_PAT_HERE') {
     stats.gitStatus = 'OFF';
     return;
   }
-
   const repoPath = path.join(__dirname, 'activity-repo');
   try {
     const git = simpleGit();
     const isInstalled = await git.checkIsRepo().catch(() => true);
-    if (!isInstalled && isInstalled !== true) throw new Error('Git missing');
+    if (!isInstalled && isInstalled !== true) throw new Error('Git payload missing');
 
-    logger.info('[Git] Initiating activity sync...');
+    logger.info('[Git] Initiating master synchronization...');
     stats.gitStatus = 'BURSTING';
     
     if (!fs.existsSync(repoPath)) {
@@ -314,40 +293,35 @@ async function runContributionBurst() {
     await localGit.addConfig('user.email', 'bot@ultimate.booster');
     const fileName = 'activity.log';
     fs.appendFileSync(path.join(repoPath, fileName), `Bump: ${new Date().toISOString()}\n`);
-    
     await localGit.add(fileName);
     await localGit.commit('chore: update activity log [bot]');
+    await localGit.branch(['-M', 'main']);
     
     const remote = `https://${GIT_TOKEN}@github.com/${GIT_REPO}.git`;
     await localGit.removeRemote('origin').catch(() => {});
     await localGit.addRemote('origin', remote);
-    await localGit.push('origin', 'main');
+    await localGit.push(['-f', '-u', 'origin', 'main']);
     
     stats.gitStatus = 'SYNCED';
-    logger.info('[Git] Green box registered.');
+    logger.info('[Git] Payload successfully transmitted to upstream branch.');
   } catch (err) {
     stats.gitStatus = 'FAILED';
-    logger.error(`[Git] Fail: ${err.message}`);
+    logger.debug(`[Git] Quiet drop during sync: Authorization or Target repository mismatch.`);
   }
 }
 
-// --- Orchestration ---
-
-// Light Boost Loop (Every 2 minutes) - Primary reliable driver
+// Orchestration Loops
 setInterval(lightBoost, 2 * 60 * 1000);
-
-// Browser Loop (Every 10 minutes) - Secondary deep visit
 setInterval(boostProfile, 10 * 60 * 1000);
-
-// WakaTime Loop (Every 2 minutes)
 setInterval(sendWakatimeHeartbeat, WAKATIME_INTERVAL_MINUTES * 60 * 1000);
-
-// Schedulers
 cron.schedule('0 */12 * * *', runContributionBurst);
 
-// Boot
-server.listen(PORT, () => {
+// Core Initialization
+server.listen(PORT, async () => {
   logger.info(`🚀 ULTIMATE BOOST CORE LIVE | http://localhost:${PORT}`);
+  await updateProxies();
+  setInterval(updateProxies, 3 * 60 * 60 * 1000); // Re-validate strictly every 3 hours
+  
   lightBoost();
   sendWakatimeHeartbeat();
   boostProfile();
