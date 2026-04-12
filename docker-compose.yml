@@ -1,0 +1,17 @@
+services:
+  booster:
+    build: .
+    container_name: gh-profile-booster
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "3030:3030"
+    shm_size: '1gb'
+    volumes:
+      - ./booster.log:/usr/src/app/booster.log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
