@@ -224,8 +224,14 @@ async function sendWakatimeHeartbeat() {
  * @async
  */
 async function boostProfile() {
-  const target = process.env.TARGET_URL;
-  if (!target) return;
+  const targets = [];
+  if (process.env.TARGET_URL) targets.push(process.env.TARGET_URL);
+  if (process.env.EXTRA_TARGETS) {
+    targets.push(...process.env.EXTRA_TARGETS.split(','));
+  }
+  if (targets.length === 0) return;
+
+  const target = getRandomItem(targets);
 
   logger.info(`[Browser] Initiating deep visit to: ${target}`);
   stats.isBrowsing = true;
@@ -304,6 +310,8 @@ async function runContributionBurst() {
     }
 
     const localGit = simpleGit(repoPath);
+    await localGit.addConfig('user.name', 'Booster Bot');
+    await localGit.addConfig('user.email', 'bot@ultimate.booster');
     const fileName = 'activity.log';
     fs.appendFileSync(path.join(repoPath, fileName), `Bump: ${new Date().toISOString()}\n`);
     

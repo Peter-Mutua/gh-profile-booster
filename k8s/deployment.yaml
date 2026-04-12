@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gh-profile-booster
+  labels:
+    app: gh-profile-booster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gh-profile-booster
+  template:
+    metadata:
+      labels:
+        app: gh-profile-booster
+    spec:
+      containers:
+      - name: booster
+        image: gh-profile-booster:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3030
+        envFrom:
+        - configMapRef:
+            name: booster-config
+        volumeMounts:
+        - name: booster-log-volume
+          mountPath: /usr/src/app/booster.log
+          subPath: booster.log
+      volumes:
+      - name: booster-log-volume
+        emptyDir: {}

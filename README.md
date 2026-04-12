@@ -40,12 +40,23 @@ graph LR
 
 ## 📦 Setup & Deployment
 
+You can deploy the booster locally using Docker or to a cluster using Kubernetes.
+
+### Option 1: Docker (Local / VPS)
 1. **Configure Environment**: Populate your `.env` with platform credentials.
 2. **Launch Container**:
    ```bash
-   docker-compose up -d --build
+   docker compose up -d --build --force-recreate
    ```
 3. **Monitor Live**: Open **`http://localhost:3030`** for real-time telemetry.
+
+### Option 2: Kubernetes (Cluster Deployment)
+1. **Configure Environment**: Provide your runtime environment variables inside the `k8s/configmap.yaml` file.
+2. **Apply Manifests**: Deploy the booster, service, and configuration natively into your K8s cluster.
+   ```bash
+   kubectl apply -f k8s/
+   ```
+3. **Access UI**: The dashboard is exposed internally via `ClusterIP` on port `3030`. Port-forward locally or attach an Ingress/NodePort based on your network architecture.
 
 ## 📊 Dashboard Preview
 The dashboard provides a glassmorphism terminal view with:

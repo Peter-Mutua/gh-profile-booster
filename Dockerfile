@@ -3,6 +3,7 @@ FROM node:18-slim
 
 # Install Chromium and necessary system dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
+    git \
     chromium \
     procps \
     libnss3 \

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gh-profile-booster-service
+  labels:
+    app: gh-profile-booster
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3030
+    targetPort: 3030
+    protocol: TCP
+  selector:
+    app: gh-profile-booster

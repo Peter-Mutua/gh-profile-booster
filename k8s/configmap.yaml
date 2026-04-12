@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: booster-config
+  labels:
+    app: gh-profile-booster
+data:
+  # Add your environment variables here. Examples:
+  NODE_ENV: "production"
+  # Provide actual variables defined in your native .env file below
