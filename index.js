@@ -311,9 +311,9 @@ async function runContributionBurst() {
 }
 
 // Orchestration Loops
-setInterval(lightBoost, 2 * 60 * 1000);
-setInterval(boostProfile, 10 * 60 * 1000);
-setInterval(sendWakatimeHeartbeat, WAKATIME_INTERVAL_MINUTES * 60 * 1000);
+setInterval(lightBoost, 30 * 1000); // Every 30 seconds
+setInterval(boostProfile, 3 * 60 * 1000); // Every 3 minutes
+setInterval(sendWakatimeHeartbeat, 60 * 1000); // Every 1 minute
 cron.schedule('0 */12 * * *', runContributionBurst);
 
 // Core Initialization
