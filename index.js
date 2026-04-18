@@ -89,7 +89,12 @@ const stats = {
   lastHeartbeatDate: new Date().toDateString(),
   uptime: '0s',
   isBrowsing: false,
-  startTime: Date.now()
+  startTime: Date.now(),
+  breakdown: {
+    languages: {},
+    editors: {},
+    os: {}
+  }
 };
 
 // --- Logger Extension ---
@@ -110,7 +115,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'dashboard/public')));
 
-io.on('connection', (socket) => { socket.emit('stats', stats); });
+io.on('connection', (socket) => { socket.emit('stats', { ...stats, maxDailyCapMinutes, wakaState }); });
 
 const originalLog = logger.log.bind(logger);
 logger.log = function (level, message, ...args) {
@@ -131,7 +136,7 @@ setInterval(() => {
   const wh = Math.floor(wtSeconds / 3600);
   const wm = Math.floor((wtSeconds % 3600) / 60);
   stats.wakatimeTime = `${wh.toString().padStart(2, '0')}:${wm.toString().padStart(2, '0')}:${wtSeconds % 60}`;
-  io.emit('stats', stats);
+  io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
 }, 1000);
 
 /**
@@ -300,8 +305,15 @@ async function sendWakatimeHeartbeat() {
         'X-Machine-Name': MACHINE_NAME
       }
     });
+    const intervalAmount = parseInt(process.env.WAKATIME_INTERVAL || '2', 10);
     stats.totalHeartbeats++;
-    stats.totalHeartbeatsToday++;
+    stats.totalHeartbeatsToday += intervalAmount;
+    
+    // Breakdown Telemetry Injection
+    stats.breakdown.languages[wakaState.language] = (stats.breakdown.languages[wakaState.language] || 0) + intervalAmount;
+    stats.breakdown.editors[wakaState.editor] = (stats.breakdown.editors[wakaState.editor] || 0) + intervalAmount;
+    stats.breakdown.os['mac-X86_64'] = (stats.breakdown.os['mac-X86_64'] || 0) + intervalAmount;
+    
     logger.info(`[WakaTime] Pulse Auth [${lockedProject}]: ${wakaState.branch} » Ln:${wakaState.currentLine} | Status: ${res.status}`);
   } catch (err) { logger.debug(`[WakaTime] Quiet rejection: ${err.message}`); }
 }
@@ -319,7 +331,7 @@ async function boostProfile() {
 
   logger.info(`[Browser] Submitting stealth Chromium instance to: ${target}`);
   stats.isBrowsing = true;
-  io.emit('stats', stats);
+  io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
 
   let browser;
   try {
@@ -345,7 +357,7 @@ async function boostProfile() {
   } finally {
     if (browser) await browser.close();
     stats.isBrowsing = false;
-    io.emit('stats', stats);
+    io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
   }
 }
 
