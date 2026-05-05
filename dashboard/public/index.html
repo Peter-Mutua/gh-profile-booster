@@ -130,27 +130,34 @@
             background: var(--widget-header);
             border-bottom: 1px solid var(--glass-border);
         }
+
+        /* Responsive structural adjustments */
+        @media (max-width: 1024px) {
+            .main-hud { flex-direction: column !important; overflow-y: auto !important; }
+            .side-hud { width: 100% !important; max-width: 100% !important; height: auto !important; flex: none !important; }
+            .telemetry-hud { width: 100% !important; height: auto !important; flex: none !important; }
+        }
     </style>
 </head>
 <body class="p-4 h-screen flex flex-col">
 
     <!-- Header Status Bar -->
-    <header class="flex justify-between items-center mb-4 pb-4" style="border-bottom: 1px solid var(--glass-border)">
+    <header class="flex flex-wrap justify-between items-center gap-4 mb-4 pb-4 shrink-0" style="border-bottom: 1px solid var(--glass-border)">
         <div class="flex items-center gap-4">
-            <div class="border-glow px-4 py-1">
+            <div class="border-glow px-4 py-1 flex-shrink-0">
                 <h1 class="orbitron text-2xl font-black tracking-widest text-glow italic" style="color: var(--color-cyan)">MULTI-BOOSTER_C2</h1>
             </div>
-            <div class="glass px-4 py-1 rounded flex items-center gap-2">
+            <div class="glass px-3 py-1 rounded flex items-center gap-2 hidden sm:flex">
                 <div class="w-2 h-2 rounded-full animate-pulse outline outline-2 outline-offset-2" style="background-color: var(--color-red); outline-color: var(--color-red)"></div>
                 <span class="text-[10px] uppercase font-bold tracking-[0.2em]" style="color: var(--color-red)">Turing Shield Active</span>
             </div>
             <button id="themeToggle" class="glass p-1.5 rounded hover:brightness-125 transition-all cursor-pointer shadow-sm" title="Toggle Theme" style="color: var(--color-cyan)">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                <svg id="themeIconSvg" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path id="themeIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
             </button>
         </div>
-        <div class="flex items-center gap-6">
+        <div class="flex items-center gap-6 hidden md:flex">
             <div class="text-right">
                 <div class="text-[10px] opacity-50 uppercase tracking-widest" style="color: var(--color-cyan)">System Uptime</div>
                 <div id="stat-uptime" class="orbitron text-sm font-bold">00d 00h 00m 00s</div>
@@ -162,133 +169,160 @@
         </div>
     </header>
 
-    <!-- Main Grid Array -->
-    <main class="grid grid-cols-12 grid-rows-10 gap-4 flex-grow overflow-hidden">
+    <!-- Main Flex Array -->
+    <main class="main-hud flex gap-4 flex-grow overflow-hidden h-full pb-2">
         
-        <!-- === WIDGET 1: ENVIRONMENTAL OVERRIDE (Top Left) === -->
-        <div class="col-start-1 col-span-3 row-start-1 row-span-3 glass rounded p-4 flex flex-col relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-full h-1" style="background-color: var(--color-cyan); opacity: 0.2"></div>
-            <h2 class="text-[10px] uppercase tracking-widest mb-4 flex justify-between" style="color: var(--color-cyan)">
-                <span class="opacity-80">Environment Matrix</span>
-                <span class="c2-cyan animate-pulse font-bold">SPOOFING</span>
-            </h2>
-
-            <div class="space-y-4 flex-grow flex flex-col justify-center">
-                <div>
-                    <div class="text-[9px] uppercase opacity-50 mb-1">Target Language</div>
-                    <div id="waka-lang" class="orbitron text-xl font-bold c2-yellow truncate">LOADING...</div>
-                </div>
-                <div>
-                    <div class="text-[9px] uppercase opacity-50 mb-1">Active Editor / Footprint</div>
-                    <div id="waka-editor" class="text-sm font-bold c2-white truncate">mac-X86_64 // VSCode</div>
-                </div>
-                <div>
-                    <div class="text-[9px] uppercase opacity-50 mb-1">Injected Dependencies</div>
-                    <div id="waka-deps" class="text-xs font-mono break-words opacity-80 h-8" style="color: var(--text-main)">
-                        [NONE]
-                    </div>
-                </div>
-                <div class="pt-2" style="border-top: 1px solid var(--glass-border)">
-                    <div class="text-[9px] uppercase opacity-50 mb-1">Git Commit Engine</div>
-                    <div id="stat-commits" class="orbitron text-sm font-bold c2-cyan">IDLE</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- === WIDGET 2: PROGRESS / C2 COUNTDOWN (Bottom Left) === -->
-        <div class="col-start-1 col-span-3 row-start-4 row-span-3 glass rounded p-4 flex flex-col relative overflow-hidden">
-            <div class="absolute top-0 right-0 w-1 h-full" style="background-color: var(--color-red); opacity: 0.2"></div>
-            <h2 class="text-[10px] uppercase tracking-widest mb-2 font-bold" style="color: var(--color-cyan)">Daily Quota Endurance</h2>
+        <!-- === LEFT SIDE HUD (30%) === -->
+        <aside class="side-hud flex flex-col gap-4 w-1/3 min-w-[320px] max-w-[420px] h-full overflow-hidden">
             
-            <div class="flex-grow flex flex-col justify-center gap-6">
-                <!-- Daily Limit Bar -->
-                <div>
-                    <div class="flex justify-between items-end mb-1">
-                        <span class="text-2xl orbitron font-bold c2-white" id="stat-wakatime">00:00</span>
-                        <span class="text-xs opacity-80" style="color: var(--color-cyan)" id="quota-text">/ 0h 0m Limit</span>
-                    </div>
-                    <div class="h-2 w-full rounded-full overflow-hidden relative" style="background-color: var(--glass-border)">
-                        <div id="quota-bar" class="h-full transition-all duration-1000 w-[0%]" style="background-color: var(--color-cyan)"></div>
-                    </div>
-                </div>
+            <!-- WIDGET 1: ENVIRONMENTAL OVERRIDE -->
+            <div class="glass rounded p-4 flex flex-col relative shrink-0">
+                <div class="absolute top-0 left-0 w-full h-1" style="background-color: var(--color-cyan); opacity: 0.2"></div>
+                <h2 class="text-[10px] uppercase tracking-widest mb-3 flex justify-between" style="color: var(--color-cyan)">
+                    <span class="opacity-80">Environment Matrix</span>
+                    <span class="c2-cyan animate-pulse font-bold">SPOOFING</span>
+                </h2>
 
-                <!-- C2 Countdown -->
-                <div class="p-3 rounded text-center" style="background: var(--widget-header); border: 1px solid var(--glass-border)">
-                    <div class="text-[9px] uppercase tracking-widest mb-1 opacity-80" style="color: var(--color-yellow)">C2 Payload Deployment (Midnight)</div>
-                    <div id="c2-countdown" class="orbitron text-2xl font-bold c2-yellow">-:-:-</div>
-                </div>
-
-                <!-- Proxy Scanner -->
-                <div class="flex items-center gap-3 p-2 rounded" style="background: var(--widget-header); border: 1px solid var(--glass-border)">
-                    <div class="radar-box"><div class="radar-sweep"></div></div>
-                    <div class="overflow-hidden">
-                        <div class="text-[9px] uppercase opacity-50 font-bold" style="color: var(--color-cyan)">Active Proxy Pipeline</div>
-                        <div id="stat-proxy" class="text-xs font-bold c2-white truncate">DIRECT_CONNECTION</div>
+                <div class="space-y-3 flex flex-col justify-center">
+                    <div>
+                        <div class="text-[9px] uppercase opacity-50 mb-1">Target Language</div>
+                        <div id="waka-lang" class="orbitron text-xl font-bold c2-yellow truncate">LOADING...</div>
+                    </div>
+                    <div>
+                        <div class="text-[9px] uppercase opacity-50 mb-1">Active Editor / Footprint</div>
+                        <div id="waka-editor" class="text-sm font-bold c2-white truncate">mac-X86_64 // VSCode</div>
+                    </div>
+                    <div>
+                        <div class="text-[9px] uppercase opacity-50 mb-1">Injected Dependencies</div>
+                        <div id="waka-deps" class="text-xs font-mono break-words opacity-80" style="color: var(--text-main); min-height: 20px;">
+                            [NONE]
+                        </div>
+                    </div>
+                    <div class="pt-2" style="border-top: 1px solid var(--glass-border)">
+                        <div class="text-[9px] uppercase opacity-50 mb-1">Git Commit Engine</div>
+                        <div id="stat-commits" class="orbitron text-sm font-bold c2-cyan">IDLE</div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- === WIDGET 5: TIME BREAKDOWN (Bottom Left) === -->
-        <div class="col-start-1 col-span-3 row-start-7 row-span-4 glass rounded p-4 flex flex-col relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-full h-1" style="background-color: var(--color-yellow); opacity: 0.3"></div>
-            <h2 class="text-[10px] uppercase tracking-widest mb-1 font-bold" style="color: var(--color-cyan)">Session Allocation</h2>
+            <!-- WIDGET 2: PROGRESS / C2 COUNTDOWN -->
+            <div class="glass rounded p-4 flex flex-col relative shrink-0">
+                <div class="absolute top-0 right-0 w-1 h-full" style="background-color: var(--color-red); opacity: 0.2"></div>
+                <h2 class="text-[10px] uppercase tracking-widest mb-2 font-bold" style="color: var(--color-cyan)">Daily Quota Endurance</h2>
+                
+                <div class="flex flex-col justify-center gap-4 mt-2">
+                    <!-- Daily Limit Bar -->
+                    <div>
+                        <div class="flex justify-between items-end mb-1">
+                            <span class="text-2xl orbitron font-bold c2-white" id="stat-wakatime">00:00</span>
+                            <span class="text-xs opacity-80" style="color: var(--color-cyan)" id="quota-text">/ 0h 0m Limit</span>
+                        </div>
+                        <div class="h-2 w-full rounded-full overflow-hidden relative" style="background-color: var(--glass-border)">
+                            <div id="quota-bar" class="h-full transition-all duration-1000 w-[0%]" style="background-color: var(--color-cyan)"></div>
+                        </div>
+                    </div>
+
+                    <!-- C2 Countdown -->
+                    <div class="p-2 rounded text-center" style="background: var(--widget-header); border: 1px solid var(--glass-border)">
+                        <div class="text-[9px] uppercase tracking-widest mb-1 opacity-80" style="color: var(--color-yellow)">C2 Payload Deployment (Midnight)</div>
+                        <div id="c2-countdown" class="orbitron text-2xl font-bold c2-yellow" style="line-height: 1.1;">-:-:-</div>
+                    </div>
+
+                    <!-- Proxy Scanner -->
+                    <div class="flex items-center gap-3 p-2 rounded" style="background: var(--widget-header); border: 1px solid var(--glass-border)">
+                        <div class="radar-box"><div class="radar-sweep"></div></div>
+                        <div class="overflow-hidden">
+                            <div class="text-[9px] uppercase opacity-50 font-bold" style="color: var(--color-cyan)">Active Proxy Pipeline</div>
+                            <div id="stat-proxy" class="text-xs font-bold c2-white truncate">DIRECT_CONNECTION</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WIDGET 5: TIME BREAKDOWN -->
+            <div class="glass rounded p-4 flex flex-col relative flex-grow min-h-0">
+                <div class="absolute bottom-0 left-0 w-full h-1" style="background-color: var(--color-yellow); opacity: 0.3"></div>
+                <h2 class="text-[10px] uppercase tracking-widest mb-1 font-bold shrink-0" style="color: var(--color-cyan)">Session Allocation</h2>
+                
+                <div class="flex-grow flex flex-col gap-1 overflow-y-auto log-container pr-1" id="breakdown-container">
+                    <div class="text-[9px] opacity-40 text-center mt-4 pt-4">Awaiting neural telemetry...</div>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- === RIGHT TELEMETRY MAP (70%) === -->
+        <section class="telemetry-hud flex flex-col gap-4 w-2/3 h-full overflow-hidden">
             
-            <div class="flex-grow flex flex-col gap-1 overflow-y-auto log-container pr-1" id="breakdown-container">
-                <div class="text-[9px] opacity-40 text-center mt-4">Awaiting neural telemetry...</div>
-            </div>
-        </div>
+            <!-- WIDGET 3: CHARTS AND GRAPHS -->
+            <div class="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[250px]">
+                
+                <!-- Github Chart -->
+                <div class="glass rounded p-3 flex flex-col relative h-full">
+                    <div class="flex justify-between items-center mb-2 px-1">
+                        <div class="text-[10px] uppercase tracking-widest font-bold" style="color: var(--color-cyan)">GitHub Traffic Analytics</div>
+                        <div class="orbitron text-xl c2-cyan" id="stat-views">+0</div>
+                    </div>
+                    <div class="flex-grow relative h-full">
+                        <canvas id="telemetryChart"></canvas>
+                    </div>
+                </div>
 
-        <!-- === WIDGET 3: CHARTS AND GRAPHS (Top Right) === -->
-        <div class="col-start-4 col-span-9 row-start-1 row-span-6 grid grid-cols-2 gap-4 max-h-full">
-            
-            <!-- Github Chart -->
-            <div class="glass rounded p-3 flex flex-col relative h-full">
-                <div class="flex justify-between items-center mb-2 px-1">
-                    <div class="text-[10px] uppercase tracking-widest font-bold" style="color: var(--color-cyan)">GitHub Traffic Analytics</div>
-                    <div class="orbitron text-xl c2-cyan" id="stat-views">+0</div>
-                </div>
-                <div class="flex-grow relative h-full">
-                    <canvas id="telemetryChart"></canvas>
-                </div>
-            </div>
-
-            <!-- WakaTime Chart -->
-            <div class="glass rounded p-3 flex flex-col relative h-full">
-                <div class="flex justify-between items-center mb-2 px-1">
-                    <div class="text-[10px] uppercase tracking-widest font-bold" style="color: var(--color-red)">Encrypted Heartbeats</div>
-                    <div class="w-1.5 h-1.5 rounded-full animate-bounce shadow-md" style="background-color: var(--color-red)"></div>
-                </div>
-                <div class="flex-grow relative h-full">
-                    <canvas id="wakatimeChart"></canvas>
+                <!-- WakaTime Chart -->
+                <div class="glass rounded p-3 flex flex-col relative h-full">
+                    <div class="flex justify-between items-center mb-2 px-1">
+                        <div class="text-[10px] uppercase tracking-widest font-bold" style="color: var(--color-red)">Encrypted Heartbeats</div>
+                        <div class="w-1.5 h-1.5 rounded-full animate-bounce shadow-md" style="background-color: var(--color-red)"></div>
+                    </div>
+                    <div class="flex-grow relative h-full">
+                        <canvas id="wakatimeChart"></canvas>
+                    </div>
                 </div>
             </div>
 
-        </div>
-
-        <!-- === WIDGET 4: CONSOLE TERMINAL (Bottom Right) === -->
-        <div class="col-start-4 col-span-9 row-start-7 row-span-4 glass rounded flex flex-col overflow-hidden relative">
-            <div class="widget-header px-3 py-1.5 flex justify-between items-center">
-                <div class="text-[10px] uppercase tracking-widest font-bold flex gap-2 items-center" style="color: var(--color-cyan)">
-                    <span class="w-2 h-2 inline-block animate-pulse" style="background-color: var(--color-cyan)"></span> SYSTEM.LOG_MATRIX
+            <!-- WIDGET 4: CONSOLE TERMINAL -->
+            <div class="glass rounded flex flex-col overflow-hidden relative shrink-0 h-1/3 min-h-[180px]">
+                <div class="widget-header px-3 py-1.5 flex justify-between items-center">
+                    <div class="text-[10px] uppercase tracking-widest font-bold flex gap-2 items-center" style="color: var(--color-cyan)">
+                        <span class="w-2 h-2 inline-block animate-pulse" style="background-color: var(--color-cyan)"></span> SYSTEM.LOG_MATRIX
+                        <div id="offline-badge" class="hidden ml-2 px-1.5 py-0.5 rounded text-[8px] bg-red-900/30 border border-red-500/50 text-red-500 animate-pulse font-bold tracking-widest" style="background-color: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.3);">
+                            OFFLINE: 0 QUEUED
+                        </div>
+                    </div>
+                    <div id="stat-browsing" class="text-[10px] font-bold tracking-widest opacity-60">IDLE</div>
                 </div>
-                <div id="stat-browsing" class="text-[10px] font-bold tracking-widest opacity-60">IDLE</div>
+                
+                <div id="logs" class="log-container flex-grow p-3 font-mono text-xs overflow-y-auto space-y-1" style="background: var(--log-bg)">
+                    <div style="color: var(--color-cyan); opacity: 0.5;">>> Connection established. Decrypting telemetry streams...</div>
+                </div>
             </div>
-            
-            <div id="logs" class="log-container flex-grow p-4 font-mono text-xs overflow-y-auto space-y-1" style="background: var(--log-bg)">
-                <div style="color: var(--color-cyan); opacity: 0.5;">>> Connection established. Decrypting telemetry streams...</div>
-            </div>
-        </div>
+
+        </section>
 
     </main>
 
     <script>
         // --- Theme Toggler ---
+        const sunPath = "M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z";
+        const moonPath = "M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z";
+        const iconPath = document.getElementById('themeIconPath');
+
+        // Initial setup
+        if (document.documentElement.getAttribute('data-theme') === 'light') {
+            iconPath.setAttribute('d', moonPath); // Means we are in Light, click to go Dark
+        } else {
+            iconPath.setAttribute('d', sunPath); // Means we are in Dark, click to go Light
+        }
+
         document.getElementById('themeToggle').addEventListener('click', () => {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
             document.documentElement.setAttribute('data-theme', newTheme);
             localStorage.setItem('theme', newTheme);
+            
+            // Switch SVG payload
+            iconPath.setAttribute('d', newTheme === 'dark' ? sunPath : moonPath);
             
             // Force charts to re-render using updated colors
             updateChartColors();
@@ -359,7 +393,6 @@
             const redC = getCSSVar('--color-red');
             const gridC = getCSSVar('--glass-border');
             
-            // Re-calc gradients based on theme
             const isLight = document.documentElement.getAttribute('data-theme') === 'light';
             
             const gradCyan = ctxGithub.createLinearGradient(0, 0, 0, 180);
@@ -475,6 +508,15 @@
                 renderBar('Linguistics Engine', s.breakdown.languages, '--color-yellow');
                 renderBar('Editor Environment', s.breakdown.editors, '--color-cyan');
                 renderBar('Host Simulation', s.breakdown.os, '--color-red');
+            }
+            
+            // Offline Badge Logic
+            const offlineBadge = document.getElementById('offline-badge');
+            if (s.offlineQueueCount > 0) {
+                offlineBadge.classList.remove('hidden');
+                offlineBadge.innerText = `OFFLINE MODE: ${s.offlineQueueCount} QUEUED`;
+            } else {
+                offlineBadge.classList.add('hidden');
             }
             
             // Browsing Pulser

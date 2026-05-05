@@ -94,8 +94,33 @@ const stats = {
     languages: {},
     editors: {},
     os: {}
-  }
+  },
+  offlineQueueCount: 0
 };
+
+let telemetryQueue = [];
+const OFFLINE_CACHE_FILE = path.join(__dirname, 'offline_heartbeats.json');
+
+if (fs.existsSync(OFFLINE_CACHE_FILE)) {
+  try {
+    telemetryQueue = JSON.parse(fs.readFileSync(OFFLINE_CACHE_FILE, 'utf8'));
+    stats.offlineQueueCount = telemetryQueue.length;
+  } catch (e) {
+    console.error(`[OfflineSync] Failed to parse disk cache: ${e.message}`);
+  }
+}
+
+function saveQueueToDisk() {
+  try {
+    if (telemetryQueue.length === 0) {
+      if (fs.existsSync(OFFLINE_CACHE_FILE)) fs.unlinkSync(OFFLINE_CACHE_FILE);
+    } else {
+      fs.writeFileSync(OFFLINE_CACHE_FILE, JSON.stringify(telemetryQueue));
+    }
+  } catch (e) {
+    console.error(`[OfflineSync] Failed to write to disk cache: ${e.message}`);
+  }
+}
 
 // --- Logger Extension ---
 const logger = winston.createLogger({
@@ -209,6 +234,48 @@ async function lightBoost() {
   }
 }
 
+// --- Phase 6: Offline Telemetry Bulk Dispatch Engine ---
+async function flushTelemetryQueue() {
+  if (telemetryQueue.length === 0) return;
+  logger.info(`[OfflineSync] Attempting to flush ${telemetryQueue.length} queued heartbeats...`);
+  
+  const tempQueue = [...telemetryQueue];
+  telemetryQueue = []; 
+  
+  try {
+    const wakaToken = Buffer.from(process.env.WAKATIME_API_KEY).toString('base64');
+    const authHeader = `Basic ${wakaToken}`;
+    const cleanEditor = wakaState.editor.replace(/\s/g, '');
+    const wakaUA = `wakatime/1.93.0 (mac-x86_64) ${wakaState.editor}/1.90.0 ${cleanEditor.toLowerCase()}-wakatime/4.0.0`;
+    
+    // Chunking to batches of 50 to strictly mimic official WakaTime CLI and prevent anomaly flags
+    const BATCH_SIZE = 50;
+    let successCount = 0;
+    for (let i = 0; i < tempQueue.length; i += BATCH_SIZE) {
+      const batch = tempQueue.slice(i, i + BATCH_SIZE);
+      const res = await axios.post('https://api.wakatime.com/api/v1/users/current/heartbeats', batch, {
+        headers: {
+          'Authorization': authHeader,
+          'User-Agent': wakaUA,
+          'X-Machine-Name': MACHINE_NAME
+        }
+      });
+      if (res.status === 201 || res.status === 202) {
+        successCount += batch.length;
+      }
+      await new Promise(r => setTimeout(r, 1000)); // Organic 1s delay between batch uploads
+    }
+    
+    logger.info(`[OfflineSync] Successfully bulk-dispatched ${successCount} offline packets to main-frame!`);
+  } catch (err) {
+    logger.warn(`[OfflineSync] Bulk dispatch interrupted. Re-queuing remaining packets. Error: ${err.message}`);
+    // If it fails mid-way, we prepend the entire tempQueue. WakaTime safely deduplicates exact Unix timestamps.
+    telemetryQueue = [...tempQueue, ...telemetryQueue]; 
+  }
+  saveQueueToDisk();
+  stats.offlineQueueCount = telemetryQueue.length;
+}
+
 /**
  * Max-Security Turing-Complete WakaTime Simulation
  */
@@ -290,11 +357,18 @@ async function sendWakatimeHeartbeat() {
     is_write: Math.random() > 0.85 // Heavy bias towards "reading/navigating"
   };
 
+  const intervalAmount = parseInt(process.env.WAKATIME_INTERVAL || '2', 10);
+  
+  // Phase 6: Immediately update local stats metrics to mask the offline status on the Dashboard HUD!
+  stats.totalHeartbeats++;
+  stats.totalHeartbeatsToday += intervalAmount;
+  stats.breakdown.languages[wakaState.language] = (stats.breakdown.languages[wakaState.language] || 0) + intervalAmount;
+  stats.breakdown.editors[wakaState.editor] = (stats.breakdown.editors[wakaState.editor] || 0) + intervalAmount;
+  stats.breakdown.os['mac-X86_64'] = (stats.breakdown.os['mac-X86_64'] || 0) + intervalAmount;
+
   try {
     const api = axios; // Unconditionally bypass proxies for 100% stable connection
     
-    // WakaTime's backend strips the operating system and editor out of the User-Agent using regex!
-    // It must perfectly match: wakatime/{version} ({os_string}) {editor}/{version} {plugin}/{version}
     const cleanEditor = wakaState.editor.replace(/\s/g, '');
     const wakaUA = `wakatime/1.93.0 (mac-x86_64) ${wakaState.editor}/1.90.0 ${cleanEditor.toLowerCase()}-wakatime/4.0.0`;
     
@@ -305,17 +379,18 @@ async function sendWakatimeHeartbeat() {
         'X-Machine-Name': MACHINE_NAME
       }
     });
-    const intervalAmount = parseInt(process.env.WAKATIME_INTERVAL || '2', 10);
-    stats.totalHeartbeats++;
-    stats.totalHeartbeatsToday += intervalAmount;
-    
-    // Breakdown Telemetry Injection
-    stats.breakdown.languages[wakaState.language] = (stats.breakdown.languages[wakaState.language] || 0) + intervalAmount;
-    stats.breakdown.editors[wakaState.editor] = (stats.breakdown.editors[wakaState.editor] || 0) + intervalAmount;
-    stats.breakdown.os['mac-X86_64'] = (stats.breakdown.os['mac-X86_64'] || 0) + intervalAmount;
     
     logger.info(`[WakaTime] Pulse Auth [${lockedProject}]: ${wakaState.branch} » Ln:${wakaState.currentLine} | Status: ${res.status}`);
-  } catch (err) { logger.debug(`[WakaTime] Quiet rejection: ${err.message}`); }
+    
+    // Post-Transmission Protocol: Attempt to flush cached offline packets if connectivity is stable
+    if (telemetryQueue.length > 0) await flushTelemetryQueue();
+
+  } catch (err) { 
+    logger.warn(`[WakaTime] Connection failed. Queuing payload offline. Error: ${err.message}`);
+    telemetryQueue.push(payload);
+    saveQueueToDisk();
+    stats.offlineQueueCount = telemetryQueue.length;
+  }
 }
 
 async function boostProfile() {
@@ -350,7 +425,41 @@ async function boostProfile() {
     await page.setUserAgent(getRandomItem(USER_AGENTS));
     await page.setViewport({ width: 800, height: 600 });
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    
+    // --- Phase 8: Deep-Web Spidering ---
+    logger.debug(`[Browser] Initiating organic scroll and read protocol...`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    await page.evaluate(() => window.scrollBy({ top: Math.floor(Math.random() * 800) + 400, behavior: 'smooth' }));
+    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+    await page.evaluate(() => window.scrollBy({ top: -300, behavior: 'smooth' }));
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Attempt deep network traversal (clicking a pinned repo on a profile OR a file in a repo tree)
+    const spiderLinks = await page.$$('.pinned-item-list-item-content a, .react-directory-truncate a, a.Link--primary[href*="/blob/"], a.Link--primary[href*="/tree/"]');
+    
+    if (spiderLinks.length > 0) {
+      const randomLink = spiderLinks[Math.floor(Math.random() * spiderLinks.length)];
+      
+      try {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
+          randomLink.click()
+        ]);
+        logger.info(`[Browser] Spider breached sub-layer. Simulating code analysis...`);
+        
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        await page.evaluate(() => window.scrollBy({ top: 1200, behavior: 'smooth' }));
+        
+        // Turing-Complete Read Time (15 to 40 seconds)
+        await new Promise(resolve => setTimeout(resolve, 15000 + Math.floor(Math.random() * 25000))); 
+      } catch (e) {
+        await new Promise(resolve => setTimeout(resolve, 8000)); // Fallback if click obscured
+      }
+    } else {
+      // Baseline view simulation if no interactive matrix found
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+    
     stats.totalViews++;
     logger.info(`[Browser] Successfully traversed DOM natively. Count incremented.`);
   } catch (err) { logger.debug(`[Browser] Stealth pipeline silently rotated on load rejection (${err.message}).`); await lightBoost();
