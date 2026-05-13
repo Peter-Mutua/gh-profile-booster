@@ -8,6 +8,7 @@
 require('dotenv').config();
 const axios = require('axios');
 const winston = require('winston');
+const DailyRotateFile = require('winston-daily-rotate-file');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -130,7 +131,14 @@ const logger = winston.createLogger({
     new winston.transports.Console({
       format: winston.format.combine(winston.format.colorize(), winston.format.printf(({ timestamp, level, message }) => `[${timestamp}] ${level}: ${message}`))
     }),
-    new winston.transports.File({ filename: 'booster.log' })
+    new DailyRotateFile({
+      filename: path.join(__dirname, 'logs', 'booster-%DATE%.log'),
+      datePattern: 'YYYY-MM-DD',
+      frequency: '24h',
+      maxSize: '20m',
+      maxFiles: '1',
+      format: winston.format.combine(winston.format.printf(({ timestamp, level, message }) => `[${timestamp}] ${level}: ${message}`))
+    })
   ],
 });
 
@@ -242,35 +250,43 @@ async function flushTelemetryQueue() {
   const tempQueue = [...telemetryQueue];
   telemetryQueue = []; 
   
+  let successCount = 0;
+  let remainingQueue = [];
+  
   try {
     const wakaToken = Buffer.from(process.env.WAKATIME_API_KEY).toString('base64');
     const authHeader = `Basic ${wakaToken}`;
     const cleanEditor = wakaState.editor.replace(/\s/g, '');
     const wakaUA = `wakatime/1.93.0 (mac-x86_64) ${wakaState.editor}/1.90.0 ${cleanEditor.toLowerCase()}-wakatime/4.0.0`;
     
-    // Chunking to batches of 50 to strictly mimic official WakaTime CLI and prevent anomaly flags
-    const BATCH_SIZE = 50;
-    let successCount = 0;
-    for (let i = 0; i < tempQueue.length; i += BATCH_SIZE) {
-      const batch = tempQueue.slice(i, i + BATCH_SIZE);
-      const res = await axios.post('https://api.wakatime.com/api/v1/users/current/heartbeats', batch, {
-        headers: {
-          'Authorization': authHeader,
-          'User-Agent': wakaUA,
-          'X-Machine-Name': MACHINE_NAME
+    // Send sequentially to guarantee 100% API compliance without triggering 400 Bad Request formats
+    for (let i = 0; i < tempQueue.length; i++) {
+      const payload = tempQueue[i];
+      try {
+        const res = await axios.post('https://api.wakatime.com/api/v1/users/current/heartbeats', payload, {
+          headers: {
+            'Authorization': authHeader,
+            'User-Agent': wakaUA,
+            'X-Machine-Name': MACHINE_NAME
+          }
+        });
+        if (res.status === 201 || res.status === 202) {
+          successCount++;
+          logger.info(`[OfflineSync] Packet ${successCount}/${tempQueue.length} synced successfully. Remaining in queue: ${tempQueue.length - successCount}`);
         }
-      });
-      if (res.status === 201 || res.status === 202) {
-        successCount += batch.length;
+        await new Promise(r => setTimeout(r, 200)); // 200ms sleep prevents rate limiting
+      } catch (err) {
+        remainingQueue = tempQueue.slice(i); // Preserve all remaining un-sent packets
+        throw err; // Trigger outer catch to halt process
       }
-      await new Promise(r => setTimeout(r, 1000)); // Organic 1s delay between batch uploads
     }
     
-    logger.info(`[OfflineSync] Successfully bulk-dispatched ${successCount} offline packets to main-frame!`);
+    logger.info(`[OfflineSync] Successfully dispatched ${successCount} offline packets to main-frame!`);
   } catch (err) {
     logger.warn(`[OfflineSync] Bulk dispatch interrupted. Re-queuing remaining packets. Error: ${err.message}`);
-    // If it fails mid-way, we prepend the entire tempQueue. WakaTime safely deduplicates exact Unix timestamps.
-    telemetryQueue = [...tempQueue, ...telemetryQueue]; 
+    // If it fails mid-way, we prepend only the remaining un-sent packets to avoid duplication.
+    if (remainingQueue.length === 0) remainingQueue = tempQueue;
+    telemetryQueue = [...remainingQueue, ...telemetryQueue]; 
   }
   saveQueueToDisk();
   stats.offlineQueueCount = telemetryQueue.length;
