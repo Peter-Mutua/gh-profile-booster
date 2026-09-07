@@ -2,3 +2,23 @@ node_modules
 logs
 *.log
 .env
+
+
+# Enterprise Security & Junk Exclusions
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+scratch/
+__pycache__/
+*.pyc
+.pytest_cache/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.sql.enc
+/tmp/
