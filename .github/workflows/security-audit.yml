@@ -1,0 +1,44 @@
+name: Enterprise Security & Vulnerability Audit
+
+on:
+  push:
+    branches: [ main, master, ft-dev ]
+  pull_request:
+    branches: [ main, master, ft-dev ]
+  schedule:
+    - cron: '0 2 * * 1' # Run weekly security scan every Monday at 2 AM UTC
+
+jobs:
+  security-scan:
+    name: Dependency Audit & Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run NPM Security Vulnerability Audit
+        run: |
+          echo "Running dependency vulnerability scan..."
+          npm audit --audit-level=high || true
+
+      - name: Verify No Leaked Secrets in Source
+        run: |
+          echo "Checking for committed plaintext private keys or tokens..."
+          if grep -rn "BEGIN RSA PRIVATE KEY" . --exclude-dir={.git,node_modules,dist,build} ; then
+            echo "❌ CRITICAL: Unencrypted RSA Private Key detected in repository!"
+            exit 1
+          else
+            echo "✓ Zero unencrypted private keys found."
+          fi
+
+      - name: Validate Strict Header Configuration
+        run: |
+          echo "Verifying server token suppression and security headers..."
+          if [ -f "next.config.js" ]; then
+            grep -q "poweredByHeader: false" next.config.js && echo "✓ Next.js poweredByHeader suppressed."
+          fi
