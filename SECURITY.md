@@ -1,50 +1,68 @@
-# Enterprise Security & Hardening Policy: gh-profile-booster Platform
+# Enterprise Security, Cryptography & Hardening Specification: Gh Profile Booster
 
-## 1. Executive Security Overview
-* **System Classification**: Enterprise Microservice Subsystem
-* **Primary Compliance Frameworks**: Enterprise Security Standards & ISO 27001
-* **Security Posture**: Zero-Trust Architecture, Strict Information Disclosure Prevention & End-to-End Encryption in Transit.
-* **Unified Master SuperAdmin**: `petermwendwa94@gmail.com`
-* **Default SuperAdmin Credentials Policy**: Synchronized via encrypted bcrypt hash (`$2a$10$...`) across database seeds and runtime auth stores.
+## 1. Security Architecture & Threat Model
 
----
-
-## 2. Threat Model & Mitigation Matrix
-
-| Potential Threat Vector | Impact Severity | Defense-in-Depth Mitigation Strategy |
-| :--- | :---: | :--- |
-| **Server & Version Fingerprinting** | Low / Reconnaissance | `server_tokens off;` in NGINX, `X-Powered-By` headers stripped across NestJS, Express, FastAPI, and Next.js (`poweredByHeader: false`). |
-| **Information Disclosure via Errors** | High | Sanitized Global Exception Filters (`AllExceptionsFilter`) masking stack traces, SQL syntax, and internal file paths in production. |
-| **Eavesdropping / MITM in Transit** | Critical | Enforced TLS 1.3 / TLS 1.2 with HSTS (`max-age=63072000; includeSubDomains; preload`) and PostgreSQL `sslmode=require`. |
-| **Cross-Site Scripting (XSS)** | High | `Content-Security-Policy`, `X-XSS-Protection: 1; mode=block`, and automatic framework HTML sanitization. |
-| **Clickjacking / UI Redressing** | Medium | `X-Frame-Options: DENY` on all responses. |
-| **MIME-Type Sniffing Attacks** | Medium | `X-Content-Type-Options: nosniff` injected at both reverse proxy and application level. |
-| **Brute Force & DoS / Slowloris** | High | Redis sliding-window rate limiting (`10 req/s` on `/auth/*`, `100 req/s` global) + 15s client body/header timeouts. |
-| **Multi-Tenant Data Cross-Talk** | Critical | Strict logical PostgreSQL database isolation (gh_profile_booster_db (PostgreSQL 17 Port 54932)) + isolated Redis keyspaces (Redis 7 (Port 63891)). |
-| **Domain-Specific Threat Vectors**: *Unauthorized API access, token compromise, data tampering, information disclosure* | Critical | Scoped role-based access control (RBAC), multi-factor OTP verification via OmniComms, and audited transactional logging. |
+* **Application Category**: Gh Profile Booster Subsystem
+* **Compliance Standards**: PCI-DSS 4.0, GDPR Article 32, ISO 27001, CBK Cybersecurity Guidelines
+* **Master SuperAdmin Contact**: `petermwendwa94@gmail.com`
+* **Master SuperAdmin Password**: `SuperPassword123!` (Bcrypt Hash: `$2a$10$iucz60z2pAzXzNJM0pcOU.stFz3/atDQoHm0vcZQ1q3eQCADcyGf2`)
 
 ---
 
-## 3. Transit Encryption & Cipher Suite Standards
+## 2. Technical Details: How Encryption is Implemented
 
-### **A. External Ingress (Public -> Gateway)**
-All client traffic terminating at the edge reverse proxy enforces modern TLS ciphers:
-```nginx
-ssl_protocols TLSv1.2 TLSv1.3;
-ssl_prefer_server_ciphers on;
-ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
-```
-
-### **B. Internal Service-to-Service & Backing Services**
-* **Relational Database**: Connected via `gh_profile_booster_db (PostgreSQL 17 Port 54932)` using authenticated credentials and SSL connection flags.
-* **In-Memory Cache**: Namespaced under `Redis 7 (Port 63891)` using authenticated Redis connections (`requirepass`).
-* **Message Broker**: AMQP / Kafka topics segregated per tenant application boundary.
+### **A. External Ingress & Transport Encryption (TLS 1.3 / Perfect Forward Secrecy)**
+1. **Handshake & Key Exchange**:
+   - Ingress endpoints enforce **TLS 1.3** and **TLS 1.2** with **Elliptic Curve Diffie-Hellman Ephemeral (ECDHE)** key negotiation over curve `X25519` / `secp256r1`.
+   - Client and server compute an ephemeral session key that is destroyed immediately upon connection termination, guaranteeing **Perfect Forward Secrecy (PFS)**.
+2. **Symmetric Bulk Ciphering (AEAD)**:
+   - Payload data is encrypted using `AES-256-GCM` or `CHACHA20-POLY1305` (Authenticated Encryption with Associated Data), ensuring both mathematical confidentiality and cryptographic tamper-detection on every single HTTP frame.
+3. **HTTP Strict Transport Security (HSTS)**:
+   - Every response includes `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` forcing modern browsers to use encrypted HTTPS exclusively for at least 2 years.
 
 ---
 
-## 4. Mandatory HTTP Security Headers
+### **B. Database Transit Encryption (PostgreSQL SSL/TLS)**
+1. **SSL Negotiation**:
+   - Backend services connect to the shared PostgreSQL 17 cluster (Port `54932`) with `sslmode=require`.
+   - Prior to issuing SQL transactions, the driver performs an SSL startup negotiation and establishes a TLS 1.3 encrypted tunnel over TCP socket.
+2. **Query & Data Stream Confidentiality**:
+   - All SQL statements, parameters, tenant IDs, customer PII, and financial records are encrypted across the container bridge and decrypted solely inside PostgreSQL memory.
 
-Every response emanating from this system includes the following immutable headers:
+---
+
+### **C. Cache & Token Storage Security (Redis 7 TLS & Key Isolation)**
+1. **Authentication & Logical Segregation**:
+   - Connected to Redis 7 (Port `63891`) using password-authenticated commands.
+   - Keys are logically partitioned and prefixed per subsystem to prevent cross-tenant data leakage.
+2. **Cryptographic Token Lifecycles**:
+   - Session tokens, refresh tokens, and rate-limiting sliding windows are stored with strict Time-To-Live (TTL) expiration.
+
+---
+
+### **D. Identity, Token & Password Cryptography**
+1. **Password Key Derivation (Bcrypt Cost 10)**:
+   - User passwords undergo adaptive key stretching via the Bcrypt algorithm ($2^10$ iterations) with a cryptographically randomized 128-bit salt per user.
+2. **Asymmetric Token Signing (RS256 / 2048-bit RSA)**:
+   - Authentication tokens are signed using private keys and validated using public keys across microservices.
+3. **Zero-Trust 3-Step Password Recovery Journey**:
+   - **Step 1**: `POST /auth/request-reset` ➔ Generates cryptographically secure 6-digit OTP, stored in Redis as SHA-256 hash (TTL 5 mins).
+   - **Step 2**: `POST /auth/verify-reset-otp` ➔ Validates `hash(OTP) === stored_hash` and issues single-use `resetToken` (TTL 10 mins).
+   - **Step 3**: `POST /auth/reset-password` ➔ Validates `resetToken`, applies new Bcrypt password hash, and revokes all prior refresh tokens.
+
+---
+
+## 3. Information Disclosure & Fingerprint Suppression
+
+* **Server Version Suppression**: `server_tokens off;` enabled in NGINX.
+* **Header Stripping**: Upstream proxy strips `X-Powered-By`, `X-AspNet-Version`, `X-Runtime`, `X-Version`, and `Server`.
+* **Frontend Disguise**: Next.js configured with `poweredByHeader: false`.
+* **Backend Disguise**: NestJS / Express configured with `app.disable('x-powered-by')`.
+* **Sanitized Exception Handling**: Production error filters catch all unhandled exceptions and return sanitized RFC 7807 responses without leaking stack traces or internal SQL syntax.
+
+---
+
+## 4. Mandatory Security Headers
 
 ```http
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
@@ -57,19 +75,9 @@ X-XSS-Protection: 1; mode=block
 
 ---
 
-## 5. Authentication, JWT & Session Management
+## 5. Security Vulnerability Reporting
 
-1. **Token Asymmetry**: Access tokens are signed using `RS256` or secure HMAC secrets with standard expiry (15 minutes).
-2. **Refresh Token Rotation**: Refresh tokens are single-use with cryptographic rotation stored in Redis blocklists.
-3. **Password Hashing**: Passwords stored using bcrypt with minimum cost factor 10.
-4. **Password Reset Journey**: Zero-trust 3-step password recovery flow (`/auth/request-reset` -> `/auth/verify-reset-otp` -> `/auth/reset-password`).
-
----
-
-## 6. Vulnerability Reporting & Incident Response
-
-If you discover a security vulnerability within this project:
-1. **Do not disclose publicly** or create public issues on GitHub.
-2. Email the Security & Operations Team immediately at: **`petermwendwa94@gmail.com`**.
-3. Include detailed steps to reproduce, sample payloads, and affected component endpoints.
-4. Security patches are prioritized and deployed within 24–48 hours under coordinated disclosure.
+To report security vulnerabilities or compliance issues regarding `gh-profile-booster`:
+1. Do NOT open public issues on GitHub.
+2. Contact the Lead Architect immediately at **`petermwendwa94@gmail.com`**.
+3. All verified vulnerabilities receive emergency remediation within 24–48 hours.
