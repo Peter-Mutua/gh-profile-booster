@@ -30,9 +30,11 @@ graph TD
         Gateway["API Gateway
 - Helmet Security Headers
 - CORS Whitelist
-- RFC 7807 Error Sanitizer"]
+- RFC 7807 Error Sanitizer
+- Redis Distributed Cache"]
         Service["Core Microservice
 - RS256 JWT Verification
+- RFC 6238 TOTP 2FA
 - Bcrypt Password Hashing"]
     end
 
@@ -40,11 +42,23 @@ graph TD
         Postgres[("PostgreSQL 17 Cluster (Port 54932)
 - TLS 1.3 Transport Tunnel
 - sslmode=require
-- Field-Level Encryption")]
+- AES-256 Encrypted Backups")]
         Redis[("Redis 7 Cache (Port 63891)
 - AUTH Password Protected
 - Isolated Tenant Namespaces
-- Ephemeral TTLs")]
+- Sub-5ms HTTP Caching")]
+    end
+
+    subgraph OpsLayer["Automated Security & DR Suite"]
+        AutoHeal["Auto-Healing Daemon
+- 15s Health Probe
+- OmniComms SMS Alerts"]
+        BackupEngine["Encrypted Backup Engine
+- AES-256-CBC PBKDF2
+- Offsite S3 Replication"]
+        SafeMigrate["Safe Migrate Runner
+- Pre-migration Snapshot
+- Automated Rollback"]
     end
 
     Client -->|"1. TLS 1.3 Handshake (ECDHE X25519 + AES-256-GCM)"| NGINX
@@ -52,6 +66,7 @@ graph TD
     Gateway -->|"3. Authenticated RPC / REST Dispatch"| Service
     Service -->|"4. SSL Startup Handshake (TLS 1.3 Query Stream)"| Postgres
     Service -->|"5. Authenticated Key-Value Operations"| Redis
+    OpsLayer -.->|"Monitors & Protects"| StorageMesh
 ```
 
 ---
@@ -79,7 +94,7 @@ sequenceDiagram
 
 1. **Ephemeral Key Exchange (ECDHE)**:
    - Ingress endpoints enforce **TLS 1.3** and **TLS 1.2** with **Elliptic Curve Diffie-Hellman Ephemeral (ECDHE)** key negotiation over curves `X25519` / `secp256r1`.
-   - Guarantees **Perfect Forward Secrecy (PFS)**: Even if the server's long-term private key were compromised in the future, past recorded traffic remains impossible to decrypt because each session derives an ephemeral key destroyed immediately upon socket closure.
+   - Guarantees **Perfect Forward Secrecy (PFS)**: Even if the server's long-term private key were compromised in the future, past recorded traffic cannot be decrypted because each session derives an ephemeral key destroyed immediately upon socket closure.
 2. **Symmetric Bulk Stream Encryption (AEAD)**:
    - Payloads are encrypted using **`AES-256-GCM`** or **`CHACHA20-POLY1305`** (Authenticated Encryption with Associated Data), ensuring mathematical confidentiality and cryptographic tamper-detection on every single packet.
 3. **HTTP Strict Transport Security (HSTS)**:
@@ -109,39 +124,42 @@ sequenceDiagram
 
 ---
 
-### **C. Zero-Trust Password Reset & OTP Journey**
+### **C. Zero-Trust Password Reset & RFC 6238 TOTP 2FA Journey**
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as User / Member
+    actor User as User / SuperAdmin
     participant Auth as Auth Microservice
     participant Redis as Redis 7 (DB 0)
     participant Comms as OmniComms Engine
     participant DB as PostgreSQL 17
 
-    User->>Auth: 1. POST /auth/request-reset (email)
-    Auth->>Auth: 2. Generate CSPRNG 6-Digit OTP + Compute SHA256(OTP)
-    Auth->>Redis: 3. SET reset_otp:email = SHA256(OTP) (TTL: 5 min)
-    Auth->>Comms: 4. Dispatch SMS / Email with Plaintext OTP
-    Comms-->>User: 5. SMS / Email Delivered to User Phone
+    User->>Auth: 1. POST /auth/2fa/generate (email)
+    Auth->>Auth: 2. Generate Base32 Secret + otpauth URI
+    Auth-->>User: 3. Return QR Code / Secret for Google Authenticator
 
-    User->>Auth: 6. POST /auth/verify-reset-otp (email, otp)
-    Auth->>Redis: 7. GET reset_otp:email & Compare Hashes
-    Auth->>Redis: 8. DELETE reset_otp:email & SET reset_token (TTL: 10 min)
-    Auth-->>User: 9. Return Signed Single-Use Reset Token
-
-    User->>Auth: 10. POST /auth/reset-password (resetToken, newPassword)
-    Auth->>Redis: 11. Validate & Consume Reset Token
-    Auth->>Auth: 12. Bcrypt Hash (Cost: 10, Salt: 128-bit CSPRNG)
-    Auth->>DB: 13. UPDATE users SET password_hash = newHash
-    Auth->>Redis: 14. Invalidate All Existing User Sessions & Refresh Tokens
-    Auth-->>User: 15. Password Reset Successful (HTTP 200)
+    User->>Auth: 4. POST /auth/2fa/enable (email, secret, token)
+    Auth->>Auth: 5. Verify TOTP Algorithm (RFC 6238, Window: ±30s)
+    Auth->>DB: 6. UPDATE users SET totp_secret = secret, totp_enabled = true
+    Auth-->>User: 7. 2FA Activated Successfully (HTTP 200)
 ```
 
 ---
 
-## 4. Information Disclosure & Fingerprint Suppression
+## 4. Enterprise Operational & Disaster Recovery Tooling
+
+| Operational Tool | Script Location | Capabilities & Encryption Controls |
+| :--- | :--- | :--- |
+| **Encrypted Database Backup** | `scripts/backup-all-databases-encrypted.sh` | AES-256-CBC PBKDF2 (100,000 iterations) snapshot generator for all multi-tenant PostgreSQL databases. |
+| **Encrypted Snapshot Restore** | `scripts/restore-database-encrypted.sh` | Instant decryption and restoration tool with automated plaintext disposal. |
+| **Auto-Healing Daemon** | `scripts/auto-heal-and-monitor.sh` | Continuous 15s health-checking agent with automatic container restart and OmniComms SMS/Email alerts to `petermwendwa94@gmail.com`. |
+| **Offsite Cloud DR Replication** | `scripts/replicate-backups-to-s3.sh` | Mirrors encrypted snapshots to S3 / Cloudflare R2 with SHA-256 integrity validation. |
+| **Safe Migration Deploy Runner** | `scripts/safe-migrate-deploy.sh` | Creates pre-migration encrypted backup, applies schema changes, and triggers auto-rollback on failure. |
+
+---
+
+## 5. Information Disclosure & Fingerprint Suppression
 
 | Information Disclosure Threat | Applied Countermeasure | Verification Status |
 | :--- | :--- | :---: |
@@ -153,7 +171,7 @@ sequenceDiagram
 
 ---
 
-## 5. Mandatory Defense-in-Depth HTTP Headers
+## 6. Mandatory Defense-in-Depth HTTP Headers
 
 ```http
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
@@ -166,7 +184,7 @@ X-XSS-Protection: 1; mode=block
 
 ---
 
-## 6. Vulnerability Reporting & Incident Disclosure
+## 7. Vulnerability Reporting & Incident Disclosure
 
 To report security vulnerabilities regarding this project:
 1. Do NOT open public issues on GitHub.
