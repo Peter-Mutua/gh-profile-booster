@@ -116,6 +116,7 @@ let wakaState = {
   dependencies: DEPENDENCY_MAP[initialLang] ? DEPENDENCY_MAP[initialLang].slice(0, 3) : []
 };
 
+const isInitialWeekend = (new Date().getDay() === 0 || new Date().getDay() === 6);
 const stats = {
   totalViews: 0,
   wakatimeTime: '00:00:00',
@@ -126,6 +127,9 @@ const stats = {
   lastHeartbeatDate: new Date().toDateString(),
   uptime: '0s',
   isBrowsing: false,
+  isManualPaused: false,
+  currentShiftType: isInitialWeekend ? 'WEEKEND' : 'WEEKDAY',
+  humanVsAi: { humanPercent: 100, aiPercent: 0, status: 'PURE_HUMAN_CADENCE' },
   startTime: Date.now(),
   breakdown: {
     languages: {},
@@ -184,7 +188,52 @@ const server = http.createServer(app);
 const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'dashboard/public')));
 
-io.on('connection', (socket) => { socket.emit('stats', { ...stats, maxDailyCapMinutes, wakaState }); });
+// Container Healthcheck Endpoint
+app.get('/healthz', (req, res) => {
+  const mem = process.memoryUsage();
+  res.status(200).json({
+    status: 'healthy',
+    uptime: stats.uptime,
+    totalHeartbeats: stats.totalHeartbeats,
+    totalViews: stats.totalViews,
+    gitStatus: stats.gitStatus,
+    offlineQueue: stats.offlineQueueCount,
+    activeProject: wakaState.project,
+    shiftType: stats.currentShiftType,
+    isManualPaused: stats.isManualPaused,
+    humanVsAi: stats.humanVsAi,
+    memory: {
+      rssMb: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024)
+    }
+  });
+});
+
+io.on('connection', (socket) => {
+  socket.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
+
+  // Interactive HUD Action 1: Instant Pulse
+  socket.on('manual_pulse', async () => {
+    logger.info('[HUD Control] Manual telemetry pulse dispatched via Cyberpunk console.');
+    await sendWakatimeHeartbeat();
+  });
+
+  // Interactive HUD Action 2: Toggle Shift Pause
+  socket.on('toggle_pause', () => {
+    stats.isManualPaused = !stats.isManualPaused;
+    logger.info(`[HUD Control] Shift State: ${stats.isManualPaused ? 'PAUSED' : 'ACTIVE'}`);
+    io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
+  });
+
+  // Interactive HUD Action 3: Project Selector
+  socket.on('switch_project', (newProject) => {
+    if (DUMMY_PROJECTS.includes(newProject)) {
+      wakaState.project = newProject;
+      logger.info(`[HUD Control] Target project switched to: ${newProject}`);
+      io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
+    }
+  });
+});
 
 const originalLog = logger.log.bind(logger);
 logger.log = function (level, message, ...args) {
@@ -326,23 +375,34 @@ async function flushTelemetryQueue() {
   stats.offlineQueueCount = telemetryQueue.length;
 }
 
+// State for Multi-Tab Split-Editor context
+let tabPulseCounter = 0;
+let isTestTabActive = false;
+
 /**
  * Human-Crafted Developer Simulation (Zero AI/Bot Fingerprints)
  * Strictly models organic keystrokes, column cursors, and project coherence.
  */
 async function sendWakatimeHeartbeat() {
   if (!process.env.WAKATIME_API_KEY || process.env.WAKATIME_API_KEY === 'YOUR_WAKATIME_API_KEY_HERE') return;
+  if (stats.isManualPaused) return;
 
-  // Day Reset Logic
+  // Day Reset Logic & Shift Profiles
   const todayStr = new Date().toDateString();
   if (stats.lastHeartbeatDate !== todayStr) {
      stats.totalHeartbeatsToday = 0;
      stats.lastHeartbeatDate = todayStr;
-     maxDailyCapMinutes = Math.floor(Math.random() * 241) + 480; // 8 to 12 hours
+     const dayOfWeek = new Date().getDay();
+     const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+     stats.currentShiftType = isWeekend ? 'WEEKEND' : 'WEEKDAY';
+
+     // Weekday: 8 to 12 hours | Weekend: 2.5 to 4.5 hours (Human work-life balance)
+     maxDailyCapMinutes = isWeekend
+       ? Math.floor(Math.random() * 121) + 150
+       : Math.floor(Math.random() * 241) + 480;
      maxDailyCapHeartbeats = maxDailyCapMinutes;
      
      // Rotate project and developer environment for the new day
-     const dayOfWeek = new Date().getDay();
      const lockedProject = DUMMY_PROJECTS[dayOfWeek % DUMMY_PROJECTS.length];
      wakaState.project = lockedProject;
      wakaState.editor = DUMMY_EDITORS[dayOfWeek % DUMMY_EDITORS.length];
@@ -357,7 +417,7 @@ async function sendWakatimeHeartbeat() {
 
      const h = Math.floor(maxDailyCapMinutes / 60);
      const m = maxDailyCapMinutes % 60;
-     logger.info(`[WakaTime] Midnight reset. Rotated to ${lockedProject} (${wakaState.language} on ${wakaState.editor}). Shift: ${h}h ${m}m.`);
+     logger.info(`[WakaTime] Midnight reset (${stats.currentShiftType}). Rotated to ${lockedProject} (${wakaState.language} on ${wakaState.editor}). Shift: ${h}h ${m}m.`);
   }
 
   // Turing Human Limitation
@@ -370,7 +430,25 @@ async function sendWakatimeHeartbeat() {
 
   // Project Anchoring: Use day of week to dictate the singular master project of the day for absolute realism
   const dayOfWeek = new Date().getDay();
-  const lockedProject = DUMMY_PROJECTS[dayOfWeek % DUMMY_PROJECTS.length];
+  const lockedProject = wakaState.project || DUMMY_PROJECTS[dayOfWeek % DUMMY_PROJECTS.length];
+
+  // Multi-Tab Context: Human developers constantly alternate between implementation and unit test tabs
+  tabPulseCounter++;
+  if (tabPulseCounter > (Math.floor(Math.random() * 8) + 10)) {
+    tabPulseCounter = 0;
+    isTestTabActive = !isTestTabActive;
+    if (isTestTabActive) {
+      logger.info(`[MultiTab] Switched editor tab to companion test suite.`);
+    } else {
+      logger.info(`[MultiTab] Returned focus to primary implementation.`);
+    }
+  }
+
+  let activeEntity = wakaState.entity;
+  if (isTestTabActive) {
+    const testCandidate = DUMMY_ENTITIES.find(e => e.includes('test') || e.includes('spec')) || `tests/engine.test${path.extname(wakaState.entity)}`;
+    activeEntity = testCandidate;
+  }
 
   // Organic Keystroke & Cursor Progression (Column 4-80)
   const charAdvance = Math.floor(Math.random() * 8) + 3;
@@ -408,11 +486,14 @@ async function sendWakatimeHeartbeat() {
   }
 
   // Dynamic Natural Category Distribution
-  const catRoll = Math.random();
   let activityCategory = 'coding';
-  if (catRoll > 0.97) activityCategory = 'writing docs';
-  else if (catRoll > 0.92) activityCategory = 'writing tests';
-  else if (catRoll > 0.80) activityCategory = 'debugging';
+  if (isTestTabActive) {
+    activityCategory = Math.random() > 0.35 ? 'writing tests' : 'debugging';
+  } else {
+    const catRoll = Math.random();
+    if (catRoll > 0.97) activityCategory = 'writing docs';
+    else if (catRoll > 0.82) activityCategory = 'debugging';
+  }
 
   // Dependency Spoofing from DEPENDENCY_MAP
   const availableDeps = DEPENDENCY_MAP[wakaState.language] || [];
@@ -427,9 +508,9 @@ async function sendWakatimeHeartbeat() {
   const isWrite = Math.random() < 0.25;
 
   // Absolute file path format on host for genuine developer client fingerprint
-  const entityPath = wakaState.entity.startsWith('/')
-    ? wakaState.entity
-    : `/Users/petermutua/Projects/${lockedProject}/${wakaState.entity}`;
+  const entityPath = activeEntity.startsWith('/')
+    ? activeEntity
+    : `/Users/petermutua/Projects/${lockedProject}/${activeEntity}`;
 
   const payload = {
     entity: entityPath,
@@ -453,6 +534,23 @@ async function sendWakatimeHeartbeat() {
   stats.breakdown.languages[wakaState.language] = (stats.breakdown.languages[wakaState.language] || 0) + intervalAmount;
   stats.breakdown.editors[wakaState.editor] = (stats.breakdown.editors[wakaState.editor] || 0) + intervalAmount;
   stats.breakdown.os['mac-X86_64'] = (stats.breakdown.os['mac-X86_64'] || 0) + intervalAmount;
+
+  // Phase 5.2: Human vs AI Tracking (Ensures Human Time >> AI Time)
+  if (!stats.humanVsAi) {
+    stats.humanVsAi = { humanMinutes: 0, aiMinutes: 0, humanPercent: 100, aiPercent: 0, wpm: 52, status: 'FLOW_STATE' };
+  }
+  const isAiPulse = Math.random() < 0.025; // Real humans write 97.5%+ manually, ~2.5% minor completions
+  if (isAiPulse) {
+    stats.humanVsAi.aiMinutes = (stats.humanVsAi.aiMinutes || 0) + intervalAmount;
+  } else {
+    stats.humanVsAi.humanMinutes = (stats.humanVsAi.humanMinutes || 0) + intervalAmount;
+  }
+  const totalDevMin = (stats.humanVsAi.humanMinutes + stats.humanVsAi.aiMinutes) || 1;
+  const hPercent = Math.min(100, Math.max(95, Math.round((stats.humanVsAi.humanMinutes / totalDevMin) * 100)));
+  stats.humanVsAi.humanPercent = hPercent;
+  stats.humanVsAi.aiPercent = 100 - hPercent;
+  stats.humanVsAi.wpm = Math.floor(Math.random() * 16) + 48; // Realistic 48-63 WPM human typing speed
+  stats.humanVsAi.status = isTestTabActive ? 'TDD_VERIFICATION' : (activityCategory === 'debugging' ? 'DEEP_DEBUGGING' : 'FLOW_STATE');
 
   try {
     const apiKey = process.env.WAKATIME_API_KEY.trim();
@@ -549,7 +647,13 @@ async function boostProfile() {
     logger.info(`[Browser] Successfully traversed DOM natively. Count incremented.`);
   } catch (err) { logger.debug(`[Browser] Stealth pipeline silently rotated on load rejection (${err.message}).`); await lightBoost();
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      try {
+        const proc = browser.process();
+        await browser.close();
+        if (proc && !proc.killed) proc.kill('SIGKILL');
+      } catch (e) {}
+    }
     stats.isBrowsing = false;
     io.emit('stats', { ...stats, maxDailyCapMinutes, wakaState });
   }
@@ -574,20 +678,24 @@ async function runContributionBurst() {
       await simpleGit(repoPath).checkoutLocalBranch('main').catch(() => {});
     }
     const localGit = simpleGit(repoPath);
-    await localGit.addConfig('user.name', 'Booster Bot');
-    await localGit.addConfig('user.email', 'bot@ultimate.booster');
+    await localGit.addConfig('user.name', process.env.GIT_AUTHOR_NAME || 'Peter-Mutua');
+    await localGit.addConfig('user.email', process.env.GIT_AUTHOR_EMAIL || 'petermwendwa94@gmail.com');
     
-    // Phase 4: Dynamic Code Generation
+    // Phase 4: Dynamic Paired Code Generation (Core Implementation + Unit Test)
     const extMapping = { 'TypeScript': '.ts', 'Python': '.py', 'Java': '.java', 'Go': '.go', 'Rust': '.rs', 'SQL': '.sql' };
     const ext = extMapping[wakaState.language] || '.js';
-    const filePath = path.join('src', 'core');
-    const fullPath = path.join(repoPath, filePath);
+    const srcDir = path.join(repoPath, 'src', 'core');
+    const testDir = path.join(repoPath, 'tests', 'core');
     
-    if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
-    const fileName = `engine${ext}`;
+    if (!fs.existsSync(srcDir)) fs.mkdirSync(srcDir, { recursive: true });
+    if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
     
-    // Write fake functional timestamp hex
-    fs.appendFileSync(path.join(fullPath, fileName), `\n// [OPS-TICK] SysCall Data: ${Date.now().toString(16)}`);
+    const implFile = `engine${ext}`;
+    const testFile = `engine_test${ext}`;
+    
+    // Write paired changes (implementation update + test assertion)
+    fs.appendFileSync(path.join(srcDir, implFile), `\n// [OPS-TICK] SysCall Data: ${Date.now().toString(16)}`);
+    fs.appendFileSync(path.join(testDir, testFile), `\n// [TEST-TICK] Assert Verified: ${Date.now().toString(16)}`);
     await localGit.add('./*');
     
     const commitMsg = getRandomItem(DUMMY_COMMIT_MESSAGES);
@@ -662,23 +770,51 @@ async function wakaLoop() {
   const now = new Date();
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
+  const dayOfWeek = now.getDay();
+  const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+  stats.currentShiftType = isWeekend ? 'WEEKEND' : 'WEEKDAY';
 
-  // 1. Circadian Deep Sleep: 1:30 AM to 8:30 AM
+  // Check HUD Manual Pause
+  if (stats.isManualPaused) {
+    logger.debug(`[WakaTime] Engine manually paused from HUD. Next check in 30s.`);
+    wakaTimeout = setTimeout(wakaLoop, 30 * 1000);
+    return;
+  }
+
+  // 1. Circadian Deep Sleep: 1:30 AM to 8:30 AM (Weekdays)
   const isNightSleep = (currentHour === 1 && currentMinute >= 30) || (currentHour >= 2 && currentHour < 8) || (currentHour === 8 && currentMinute < 30);
   
   // 2. Realistic Lunch Break: 1:00 PM to 1:45 PM
   const isLunchBreak = (currentHour === 13 && currentMinute <= 45);
 
-  let nextJitterMs = Math.floor(Math.random() * 25000) + 85000; // 85s - 110s (within WakaTime 2-min window)
+  // 3. Weekend Work Hours Guard: 10:30 AM to 4:00 PM only (relaxed human weekend schedule)
+  const isWeekendOffHours = isWeekend && (currentHour < 10 || (currentHour === 10 && currentMinute < 30) || currentHour >= 16);
+
+  // Realistic Poisson-Gaussian Human Typing Cadence:
+  // 65% in-the-zone continuous flow: 70s - 95s
+  // 25% thinking / inspecting docs / code review: 105s - 140s
+  // 10% test compilation / deeper analysis: 145s - 190s
+  const roll = Math.random();
+  let nextJitterMs;
+  if (roll < 0.65) {
+    nextJitterMs = Math.floor(Math.random() * 25000) + 70000;
+  } else if (roll < 0.90) {
+    nextJitterMs = Math.floor(Math.random() * 35000) + 105000;
+  } else {
+    nextJitterMs = Math.floor(Math.random() * 45000) + 145000;
+  }
 
   if (isNightSleep) {
     logger.debug(`[WakaTime] Circadian sleep cycle active (1:30 AM - 8:30 AM). Resting.`);
     nextJitterMs = 5 * 60 * 1000;
+  } else if (isWeekendOffHours) {
+    logger.debug(`[WakaTime] Weekend mode off-hours. Relaxing.`);
+    nextJitterMs = 10 * 60 * 1000;
   } else if (isLunchBreak) {
     logger.info(`[WakaTime] Natural midday lunch break active (1:00 PM - 1:45 PM).`);
     nextJitterMs = 4 * 60 * 1000;
   } else {
-    // 3. Human Focus Rhythm: after ~25-35 continuous pulses (~45-55 mins), take a 5-minute break
+    // Human Focus Rhythm: after ~25-35 continuous pulses (~45-55 mins), take a 5-minute break
     focusHeartbeatCount++;
     if (focusHeartbeatCount > (Math.floor(Math.random() * 10) + 25)) {
       focusHeartbeatCount = 0;
@@ -693,8 +829,47 @@ async function wakaLoop() {
 }
 wakaLoop();
 
-cron.schedule('0 */8 * * *', runContributionBurst); // Execute Git stealth committer every 8 hours organically
+// Organic Daytime Commit Engine (Emulates human commits scattered naturally during work hours)
+let lastCommitTimestamp = 0;
+async function evaluateHumanCommitSchedule() {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const dayOfWeek = now.getDay();
+  const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+
+  // Humans commit only during daytime active coding shifts
+  const isWorkingHours = isWeekend 
+    ? (currentHour >= 11 && currentHour <= 15) 
+    : (currentHour >= 10 && currentHour <= 20);
+
+  if (!isWorkingHours) return;
+
+  const minInterval = (isWeekend ? 3.5 : 2.5) * 60 * 60 * 1000;
+  const elapsed = Date.now() - lastCommitTimestamp;
+
+  if (elapsed >= minInterval && Math.random() < 0.40) {
+    lastCommitTimestamp = Date.now();
+    logger.info('[GitScheduler] Triggering organic daytime paired commit burst...');
+    await runContributionBurst();
+  }
+}
+setInterval(evaluateHumanCommitSchedule, 15 * 60 * 1000); // Check every 15 mins during active hours
+
+cron.schedule('0 */8 * * *', runContributionBurst); // Execute Git stealth committer fallback
 cron.schedule('59 23 * * *', sendC2Report); // Trigger C2 report perfectly at 11:59PM
+
+// Graceful Shutdown Signals (Preserves state on container termination)
+function handleGracefulShutdown(signal) {
+  logger.info(`[System] Received ${signal}. Executing graceful shutdown protocol...`);
+  saveQueueToDisk();
+  server.close(() => {
+    logger.info('[System] HTTP/WebSocket server closed cleanly.');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 3000);
+}
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 
 // Boot sequence
 server.listen(PORT, async () => {

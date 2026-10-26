@@ -169,6 +169,39 @@
         </div>
     </header>
 
+    <!-- Interactive HUD Command & Evasion Control Strip -->
+    <div class="glass px-4 py-2.5 rounded mb-4 flex flex-wrap justify-between items-center gap-3 shrink-0" style="border: 1px solid var(--glass-border)">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="text-[10px] uppercase font-bold tracking-widest flex items-center gap-1.5" style="color: var(--color-cyan)">
+                <span class="w-2 h-2 rounded-full animate-ping" style="background-color: var(--color-cyan)"></span>
+                HUD CONTROLS
+            </span>
+            <button id="btnManualPulse" class="glass px-3 py-1 rounded text-xs font-mono font-bold hover:brightness-125 transition-all cursor-pointer flex items-center gap-1" style="color: var(--color-cyan); border: 1px solid var(--glass-border)">
+                ⚡ SEND PULSE
+            </button>
+            <button id="btnTogglePause" class="glass px-3 py-1 rounded text-xs font-mono font-bold hover:brightness-125 transition-all cursor-pointer flex items-center gap-1" style="color: var(--color-yellow); border: 1px solid var(--glass-border)">
+                ⏸️ PAUSE SHIFT
+            </button>
+            <div class="flex items-center gap-1.5 text-xs font-mono">
+                <span class="text-[9px] opacity-60 uppercase">PROJECT:</span>
+                <select id="selectProject" class="glass px-2 py-0.5 rounded text-xs font-mono font-bold cursor-pointer" style="background: var(--widget-header); color: var(--color-cyan); border: 1px solid var(--glass-border)">
+                    <option value="Quantum-AI">Quantum-AI</option>
+                    <option value="Cyber-Sec-Core">Cyber-Sec-Core</option>
+                    <option value="Project-Phoenix">Project-Phoenix</option>
+                    <option value="Titan-Framework">Titan-Framework</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex items-center gap-3 text-[10px] font-mono">
+            <div id="badge-shift" class="px-2 py-0.5 rounded font-bold tracking-widest border" style="color: var(--color-yellow); border-color: rgba(234, 179, 8, 0.4); background: rgba(234, 179, 8, 0.1);">
+                WEEKDAY SHIFT
+            </div>
+            <div id="badge-human" class="px-2 py-0.5 rounded font-bold tracking-widest border" style="color: var(--color-cyan); border-color: rgba(0, 255, 204, 0.4); background: rgba(0, 255, 204, 0.1);">
+                HUMAN: 100% | AI: 0%
+            </div>
+        </div>
+    </div>
+
     <!-- Main Flex Array -->
     <main class="main-hud flex gap-4 flex-grow overflow-hidden h-full pb-2">
         
@@ -201,6 +234,20 @@
                     <div class="pt-2" style="border-top: 1px solid var(--glass-border)">
                         <div class="text-[9px] uppercase opacity-50 mb-1">Git Commit Engine</div>
                         <div id="stat-commits" class="orbitron text-sm font-bold c2-cyan">IDLE</div>
+                    </div>
+                    <div class="pt-2" style="border-top: 1px solid var(--glass-border)">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-[9px] uppercase opacity-50">Cognitive Cadence</span>
+                            <span id="stat-cadence-badge" class="text-[9px] font-bold c2-cyan">FLOW STATE</span>
+                        </div>
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="opacity-70">Typing Velocity:</span>
+                            <span id="stat-wpm" class="font-bold c2-white">54 WPM</span>
+                        </div>
+                        <div class="flex justify-between text-xs font-mono mt-0.5">
+                            <span class="opacity-70">Human Code Ratio:</span>
+                            <span id="stat-human-ratio" class="font-bold c2-cyan">98% Human / 2% AI</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -352,15 +399,28 @@
         }, 1000);
 
         // ==========================================
-        // CHARTS SETUP
+        // CHARTS SETUP (WITH LOCALSTORAGE RETENTION)
         // ==========================================
+        let cachedLabels = [];
+        let cachedViews = [];
+        let cachedBeats = [];
+        try {
+            cachedLabels = JSON.parse(localStorage.getItem('gh_telemetry_labels') || '[]');
+            cachedViews = JSON.parse(localStorage.getItem('gh_telemetry_views') || '[]');
+            cachedBeats = JSON.parse(localStorage.getItem('waka_telemetry_beats') || '[]');
+        } catch(e) {}
+
+        const initialLabels = cachedLabels.length >= 5 ? cachedLabels : Array(25).fill('');
+        const initialViews = cachedViews.length >= 5 ? cachedViews : Array(25).fill(0);
+        const initialBeats = cachedBeats.length >= 5 ? cachedBeats : Array(25).fill(0);
+
         const ctxGithub = document.getElementById('telemetryChart').getContext('2d');
         const telemetryChart = new Chart(ctxGithub, {
             type: 'line',
             data: {
-                labels: Array(25).fill(''),
+                labels: initialLabels,
                 datasets: [{
-                    data: Array(25).fill(0),
+                    data: initialViews,
                     borderWidth: 2, fill: true, tension: 0.3, pointRadius: 0
                 }]
             },
@@ -375,9 +435,9 @@
         const wakatimeChart = new Chart(ctxWaka, {
             type: 'line',
             data: {
-                labels: Array(25).fill(''),
+                labels: initialLabels,
                 datasets: [{
-                    data: Array(25).fill(0),
+                    data: initialBeats,
                     borderWidth: 2, fill: true, tension: 0.3, pointRadius: 0
                 }]
             },
@@ -530,6 +590,38 @@
                 browsingEl.style.color = 'var(--color-cyan)';
             }
 
+            // Update HUD interactive buttons & badges
+            const badgeShift = document.getElementById('badge-shift');
+            if (badgeShift && s.currentShiftType) {
+                badgeShift.innerText = s.currentShiftType + ' SHIFT';
+            }
+            const btnPause = document.getElementById('btnTogglePause');
+            if (btnPause) {
+                btnPause.innerText = s.isManualPaused ? '▶️ RESUME SHIFT' : '⏸️ PAUSE SHIFT';
+                btnPause.style.color = s.isManualPaused ? 'var(--color-red)' : 'var(--color-yellow)';
+            }
+            const selProject = document.getElementById('selectProject');
+            if (selProject && s.wakaState && s.wakaState.project && document.activeElement !== selProject) {
+                selProject.value = s.wakaState.project;
+            }
+
+            // Update Human vs AI Telemetry Status
+            const badgeHuman = document.getElementById('badge-human');
+            if (badgeHuman && s.humanVsAi) {
+                const hp = s.humanVsAi.humanPercent !== undefined ? s.humanVsAi.humanPercent : 98;
+                const ap = s.humanVsAi.aiPercent !== undefined ? s.humanVsAi.aiPercent : 2;
+                badgeHuman.innerText = `HUMAN: ${hp}% | AI: ${ap}%`;
+                badgeHuman.style.color = hp >= 90 ? 'var(--color-cyan)' : 'var(--color-yellow)';
+            }
+            if (s.humanVsAi) {
+                const elWpm = document.getElementById('stat-wpm');
+                if (elWpm && s.humanVsAi.wpm) elWpm.innerText = `${s.humanVsAi.wpm} WPM`;
+                const elRatio = document.getElementById('stat-human-ratio');
+                if (elRatio) elRatio.innerText = `${s.humanVsAi.humanPercent}% Human / ${s.humanVsAi.aiPercent}% AI`;
+                const elCadence = document.getElementById('stat-cadence-badge');
+                if (elCadence && s.humanVsAi.status) elCadence.innerText = s.humanVsAi.status.replace(/_/g, ' ');
+            }
+
             if (Date.now() >= nextChartUpdate) {
                 const timeStr = new Date().toLocaleTimeString();
                 telemetryChart.data.labels.push(timeStr);
@@ -542,7 +634,28 @@
                 if (wakatimeChart.data.labels.length > 50) { wakatimeChart.data.labels.shift(); wakatimeChart.data.datasets[0].data.shift(); }
                 wakatimeChart.update();
                 nextChartUpdate = Date.now() + 1000;
+
+                // Persist telemetry to LocalStorage
+                try {
+                    localStorage.setItem('gh_telemetry_labels', JSON.stringify(telemetryChart.data.labels));
+                    localStorage.setItem('gh_telemetry_views', JSON.stringify(telemetryChart.data.datasets[0].data));
+                    localStorage.setItem('waka_telemetry_beats', JSON.stringify(wakatimeChart.data.datasets[0].data));
+                } catch(e) {}
             }
+        });
+
+        // Interactive HUD Control Bindings
+        document.getElementById('btnManualPulse').addEventListener('click', () => {
+            socket.emit('manual_pulse');
+            const btn = document.getElementById('btnManualPulse');
+            btn.innerText = '⚡ PULSED!';
+            setTimeout(() => { btn.innerText = '⚡ SEND PULSE'; }, 1000);
+        });
+        document.getElementById('btnTogglePause').addEventListener('click', () => {
+            socket.emit('toggle_pause');
+        });
+        document.getElementById('selectProject').addEventListener('change', (e) => {
+            socket.emit('switch_project', e.target.value);
         });
     </script>
 </body>

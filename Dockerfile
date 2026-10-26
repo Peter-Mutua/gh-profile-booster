@@ -1,8 +1,9 @@
 # Use a robust Debian-based image for Headless Chrome support
 FROM node:18-slim
 
-# Install Chromium and necessary system dependencies for Puppeteer
+# Install Chromium, curl, and necessary system dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
+    curl \
     git \
     chromium \
     procps \
@@ -60,6 +61,10 @@ EXPOSE 3030
 
 # Set environment
 ENV NODE_ENV=production
+
+# Container Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3030/healthz || exit 1
 
 # Command to run the application
 CMD [ "node", "index.js" ]
