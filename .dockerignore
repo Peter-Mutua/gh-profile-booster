@@ -1,0 +1,10 @@
+node_modules
+logs
+*.log
+.git
+.gitignore
+.dockerignore
+.DS_Store
+activity-repo
+graphify-out
+docs

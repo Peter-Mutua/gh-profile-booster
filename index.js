@@ -71,13 +71,49 @@ const DUMMY_COMMIT_MESSAGES = [
   'docs(readme): update deployment architecture matrix'
 ];
 
+// Extension to Language Map to guarantee zero parser mismatches in WakaTime
+const EXT_TO_LANG = {
+  '.tsx': 'TypeScript',
+  '.ts': 'TypeScript',
+  '.jsx': 'JavaScript',
+  '.js': 'JavaScript',
+  '.py': 'Python',
+  '.go': 'Go',
+  '.rs': 'Rust',
+  '.java': 'Java',
+  '.sql': 'SQL',
+  '.yaml': 'YAML',
+  '.yml': 'YAML',
+  '.md': 'Markdown',
+  '.sh': 'Shell'
+};
+
+function getWakaUserAgent(editor) {
+  switch (editor) {
+    case 'IntelliJ IDEA':
+      return 'wakatime/v1.109.1 (Darwin-24.1.0-arm64) IntelliJ-IDEA/2024.3 intellij-wakatime/14.3.11';
+    case 'PyCharm':
+      return 'wakatime/v1.109.1 (Darwin-24.1.0-arm64) PyCharm/2024.3 pycharm-wakatime/14.3.11';
+    case 'VS Code':
+    default:
+      return 'wakatime/v1.109.1 (Darwin-24.1.0-arm64) vscode/1.96.2 vscode-wakatime/24.4.0';
+  }
+}
+
+// Initial session state
+const initialEntity = getRandomItem(DUMMY_ENTITIES);
+const initialExt = path.extname(initialEntity);
+const initialLang = EXT_TO_LANG[initialExt] || getRandomItem(DUMMY_LANGUAGES);
+
 let wakaState = {
   editor: getRandomItem(DUMMY_EDITORS),
-  language: getRandomItem(DUMMY_LANGUAGES),
-  entity: getRandomItem(DUMMY_ENTITIES),
+  language: initialLang,
+  entity: initialEntity,
   branch: getRandomItem(DUMMY_BRANCHES),
   activeFileLines: Math.floor(Math.random() * 400) + 100, // file has 100-500 lines
-  currentLine: 1
+  currentLine: Math.floor(Math.random() * 30) + 20,
+  currentColumn: Math.floor(Math.random() * 20) + 8,
+  dependencies: DEPENDENCY_MAP[initialLang] ? DEPENDENCY_MAP[initialLang].slice(0, 3) : []
 };
 
 const stats = {
@@ -242,7 +278,7 @@ async function lightBoost() {
   }
 }
 
-// --- Phase 6: Offline Telemetry Bulk Dispatch Engine ---
+/// --- Phase 6: Offline Telemetry Bulk Dispatch Engine ---
 async function flushTelemetryQueue() {
   if (telemetryQueue.length === 0) return;
   logger.info(`[OfflineSync] Attempting to flush ${telemetryQueue.length} queued heartbeats...`);
@@ -256,10 +292,9 @@ async function flushTelemetryQueue() {
   try {
     const wakaToken = Buffer.from(process.env.WAKATIME_API_KEY).toString('base64');
     const authHeader = `Basic ${wakaToken}`;
-    const cleanEditor = wakaState.editor.replace(/\s/g, '');
-    const wakaUA = `wakatime/1.93.0 (mac-x86_64) ${wakaState.editor}/1.90.0 ${cleanEditor.toLowerCase()}-wakatime/4.0.0`;
+    const wakaUA = getWakaUserAgent(wakaState.editor);
     
-    // Send sequentially to guarantee 100% API compliance without triggering 400 Bad Request formats
+    // Send sequentially to guarantee 100% API compliance without triggering rate limits
     for (let i = 0; i < tempQueue.length; i++) {
       const payload = tempQueue[i];
       try {
@@ -272,19 +307,18 @@ async function flushTelemetryQueue() {
         });
         if (res.status === 201 || res.status === 202) {
           successCount++;
-          logger.info(`[OfflineSync] Packet ${successCount}/${tempQueue.length} synced successfully. Remaining in queue: ${tempQueue.length - successCount}`);
+          logger.info(`[OfflineSync] Packet ${successCount}/${tempQueue.length} synced successfully. Remaining: ${tempQueue.length - successCount}`);
         }
-        await new Promise(r => setTimeout(r, 200)); // 200ms sleep prevents rate limiting
+        await new Promise(r => setTimeout(r, 250)); // 250ms sleep prevents rate limiting
       } catch (err) {
         remainingQueue = tempQueue.slice(i); // Preserve all remaining un-sent packets
-        throw err; // Trigger outer catch to halt process
+        throw err;
       }
     }
     
-    logger.info(`[OfflineSync] Successfully dispatched ${successCount} offline packets to main-frame!`);
+    logger.info(`[OfflineSync] Successfully dispatched ${successCount} offline packets!`);
   } catch (err) {
     logger.warn(`[OfflineSync] Bulk dispatch interrupted. Re-queuing remaining packets. Error: ${err.message}`);
-    // If it fails mid-way, we prepend only the remaining un-sent packets to avoid duplication.
     if (remainingQueue.length === 0) remainingQueue = tempQueue;
     telemetryQueue = [...remainingQueue, ...telemetryQueue]; 
   }
@@ -293,7 +327,8 @@ async function flushTelemetryQueue() {
 }
 
 /**
- * Max-Security Turing-Complete WakaTime Simulation
+ * Human-Crafted Developer Simulation (Zero AI/Bot Fingerprints)
+ * Strictly models organic keystrokes, column cursors, and project coherence.
  */
 async function sendWakatimeHeartbeat() {
   if (!process.env.WAKATIME_API_KEY || process.env.WAKATIME_API_KEY === 'YOUR_WAKATIME_API_KEY_HERE') return;
@@ -303,11 +338,26 @@ async function sendWakatimeHeartbeat() {
   if (stats.lastHeartbeatDate !== todayStr) {
      stats.totalHeartbeatsToday = 0;
      stats.lastHeartbeatDate = todayStr;
-     maxDailyCapMinutes = Math.floor(Math.random() * 241) + 480;
+     maxDailyCapMinutes = Math.floor(Math.random() * 241) + 480; // 8 to 12 hours
      maxDailyCapHeartbeats = maxDailyCapMinutes;
+     
+     // Rotate project and developer environment for the new day
+     const dayOfWeek = new Date().getDay();
+     const lockedProject = DUMMY_PROJECTS[dayOfWeek % DUMMY_PROJECTS.length];
+     wakaState.project = lockedProject;
+     wakaState.editor = DUMMY_EDITORS[dayOfWeek % DUMMY_EDITORS.length];
+     wakaState.branch = DUMMY_BRANCHES[dayOfWeek % DUMMY_BRANCHES.length];
+     wakaState.entity = DUMMY_ENTITIES[dayOfWeek % DUMMY_ENTITIES.length];
+     const ext = path.extname(wakaState.entity);
+     wakaState.language = EXT_TO_LANG[ext] || DUMMY_LANGUAGES[dayOfWeek % DUMMY_LANGUAGES.length];
+     wakaState.dependencies = DEPENDENCY_MAP[wakaState.language] ? DEPENDENCY_MAP[wakaState.language].slice(0, 3) : [];
+     wakaState.activeFileLines = Math.floor(Math.random() * 400) + 100;
+     wakaState.currentLine = Math.floor(Math.random() * 30) + 20;
+     wakaState.currentColumn = Math.floor(Math.random() * 20) + 8;
+
      const h = Math.floor(maxDailyCapMinutes / 60);
      const m = maxDailyCapMinutes % 60;
-     logger.info(`[WakaTime] Midnight reset. Generated organic coding shift: ${h}h ${m}m.`);
+     logger.info(`[WakaTime] Midnight reset. Rotated to ${lockedProject} (${wakaState.language} on ${wakaState.editor}). Shift: ${h}h ${m}m.`);
   }
 
   // Turing Human Limitation
@@ -322,60 +372,82 @@ async function sendWakatimeHeartbeat() {
   const dayOfWeek = new Date().getDay();
   const lockedProject = DUMMY_PROJECTS[dayOfWeek % DUMMY_PROJECTS.length];
 
-  // Mathematical Cursor Simulation. Cursor steadily creeps down the file organically.
-  wakaState.currentLine += Math.floor(Math.random() * 3); // Advance 0-2 lines down payload
-  
-  if (wakaState.currentLine >= wakaState.activeFileLines) {
-      wakaState.currentLine = 1;
-      wakaState.activeFileLines = Math.floor(Math.random() * 400) + 100;
-      // Change file context and branch when bottom of file reached (~3-4 hours)
-      wakaState.entity = getRandomItem(DUMMY_ENTITIES);
-      wakaState.branch = getRandomItem(DUMMY_BRANCHES);
-      logger.debug(`[WakaTime] File complete. Anchoring cursor to new file: ${wakaState.entity} on ${wakaState.branch}`);
+  // Organic Keystroke & Cursor Progression (Column 4-80)
+  const charAdvance = Math.floor(Math.random() * 8) + 3;
+  wakaState.currentColumn = (wakaState.currentColumn || 12) + charAdvance;
+
+  // Statement completion / line wrap
+  if (wakaState.currentColumn > (Math.floor(Math.random() * 25) + 60)) {
+    wakaState.currentColumn = Math.floor(Math.random() * 12) + 4; // indent
+    
+    // 75% advance down, 20% small edit jump up, 5% inspect imports
+    const moveRoll = Math.random();
+    if (moveRoll < 0.75) {
+      wakaState.currentLine += 1;
+      if (Math.random() > 0.6) {
+        wakaState.activeFileLines += 1; // wrote a new line of code
+      }
+    } else if (moveRoll < 0.95) {
+      wakaState.currentLine = Math.max(1, wakaState.currentLine - Math.floor(Math.random() * 3) - 1);
+    } else {
+      wakaState.currentLine = Math.floor(Math.random() * 10) + 1;
+    }
   }
 
-  const apiKey = process.env.WAKATIME_API_KEY.trim();
-  const authHeader = `Basic ${Buffer.from(apiKey).toString('base64')}`;
-  
-  // Calculate relative characters based on line location natively
-  const roughCursorPos = wakaState.currentLine * (Math.floor(Math.random() * 20) + 40); 
+  // If cursor exceeded file lines, anchor to new file from DUMMY_ENTITIES
+  if (wakaState.currentLine >= wakaState.activeFileLines) {
+    wakaState.currentLine = Math.floor(Math.random() * 25) + 15;
+    wakaState.activeFileLines = Math.floor(Math.random() * 400) + 100;
+    wakaState.entity = getRandomItem(DUMMY_ENTITIES);
+    wakaState.branch = getRandomItem(DUMMY_BRANCHES);
+    
+    const ext = path.extname(wakaState.entity);
+    wakaState.language = EXT_TO_LANG[ext] || getRandomItem(DUMMY_LANGUAGES);
+    wakaState.editor = getRandomItem(DUMMY_EDITORS);
+    logger.debug(`[WakaTime] File complete. Anchoring cursor to: ${wakaState.entity} on ${wakaState.branch} (${wakaState.language})`);
+  }
 
-  // Dynamic Category Probability Thresholds
-  const codingScore = Math.random() * 0.20 + 0.70; // Coding captures 70% to 90% of all activity
-  const debuggingScore = codingScore + (Math.random() * 0.05 + 0.05); // Debugging captures 5% to 15%
-  
+  // Dynamic Natural Category Distribution
   const catRoll = Math.random();
   let activityCategory = 'coding';
-  if (catRoll > debuggingScore) activityCategory = 'writing docs';
-  else if (catRoll > codingScore) activityCategory = 'debugging';
+  if (catRoll > 0.97) activityCategory = 'writing docs';
+  else if (catRoll > 0.92) activityCategory = 'writing tests';
+  else if (catRoll > 0.80) activityCategory = 'debugging';
 
-  // Phase 4: Inject Organic Dependency Spoofing
+  // Dependency Spoofing from DEPENDENCY_MAP
   const availableDeps = DEPENDENCY_MAP[wakaState.language] || [];
   let dependencies = [];
-  if (availableDeps.length > 0 && Math.random() > 0.4) {
-      const limit = Math.floor(Math.random() * 3) + 1; // 1 to 3 dependencies
-      dependencies = [...availableDeps].sort(() => 0.5 - Math.random()).slice(0, limit);
+  if (availableDeps.length > 0) {
+    const limit = Math.min(availableDeps.length, Math.floor(Math.random() * 3) + 2);
+    dependencies = [...availableDeps].sort(() => 0.5 - Math.random()).slice(0, limit);
   }
+  wakaState.dependencies = dependencies;
+
+  // File save event simulation (is_write true ~25% of heartbeats)
+  const isWrite = Math.random() < 0.25;
+
+  // Absolute file path format on host for genuine developer client fingerprint
+  const entityPath = wakaState.entity.startsWith('/')
+    ? wakaState.entity
+    : `/Users/petermutua/Projects/${lockedProject}/${wakaState.entity}`;
 
   const payload = {
-    entity: wakaState.entity, 
-    type: 'file', 
-    category: activityCategory, 
-    project: lockedProject, 
-    language: wakaState.language, 
+    entity: entityPath,
+    type: 'file',
+    category: activityCategory,
+    project: lockedProject,
+    language: wakaState.language,
     branch: wakaState.branch,
     dependencies: dependencies,
     lineno: wakaState.currentLine,
-    cursorpos: roughCursorPos,
+    cursorpos: wakaState.currentColumn,
     lines: wakaState.activeFileLines,
     machine_name: MACHINE_NAME,
-    time: Math.floor(Date.now() / 1000), 
-    is_write: Math.random() > 0.85 // Heavy bias towards "reading/navigating"
+    time: Number((Date.now() / 1000).toFixed(3)),
+    is_write: isWrite
   };
 
   const intervalAmount = parseInt(process.env.WAKATIME_INTERVAL || '2', 10);
-  
-  // Phase 6: Immediately update local stats metrics to mask the offline status on the Dashboard HUD!
   stats.totalHeartbeats++;
   stats.totalHeartbeatsToday += intervalAmount;
   stats.breakdown.languages[wakaState.language] = (stats.breakdown.languages[wakaState.language] || 0) + intervalAmount;
@@ -383,25 +455,22 @@ async function sendWakatimeHeartbeat() {
   stats.breakdown.os['mac-X86_64'] = (stats.breakdown.os['mac-X86_64'] || 0) + intervalAmount;
 
   try {
-    const api = axios; // Unconditionally bypass proxies for 100% stable connection
-    
-    const cleanEditor = wakaState.editor.replace(/\s/g, '');
-    const wakaUA = `wakatime/1.93.0 (mac-x86_64) ${wakaState.editor}/1.90.0 ${cleanEditor.toLowerCase()}-wakatime/4.0.0`;
-    
-    const res = await api.post('https://api.wakatime.com/api/v1/users/current/heartbeats', payload, {
-      headers: { 
-        'Authorization': authHeader, 
+    const apiKey = process.env.WAKATIME_API_KEY.trim();
+    const authHeader = `Basic ${Buffer.from(apiKey).toString('base64')}`;
+    const wakaUA = getWakaUserAgent(wakaState.editor);
+
+    const res = await axios.post('https://api.wakatime.com/api/v1/users/current/heartbeats', payload, {
+      headers: {
+        'Authorization': authHeader,
         'User-Agent': wakaUA,
         'X-Machine-Name': MACHINE_NAME
       }
     });
-    
-    logger.info(`[WakaTime] Pulse Auth [${lockedProject}]: ${wakaState.branch} » Ln:${wakaState.currentLine} | Status: ${res.status}`);
-    
-    // Post-Transmission Protocol: Attempt to flush cached offline packets if connectivity is stable
-    if (telemetryQueue.length > 0) await flushTelemetryQueue();
 
-  } catch (err) { 
+    logger.info(`[WakaTime] Pulse Auth [${lockedProject}]: ${wakaState.entity} » Ln:${wakaState.currentLine}:Col:${wakaState.currentColumn} (${activityCategory}) | HTTP ${res.status}`);
+
+    if (telemetryQueue.length > 0) await flushTelemetryQueue();
+  } catch (err) {
     logger.warn(`[WakaTime] Connection failed. Queuing payload offline. Error: ${err.message}`);
     telemetryQueue.push(payload);
     saveQueueToDisk();
@@ -587,15 +656,39 @@ setInterval(lightBoost, 30 * 1000); // Every 30 seconds
 setInterval(boostProfile, 3 * 60 * 1000); // Every 3 minutes
 
 let wakaTimeout;
-async function wakaLoop() {
-  const currentHour = new Date().getHours();
-  // Absolute circadian deep sleep mimicry between 2AM and 8AM
-  let isSleeping = currentHour >= 2 && currentHour <= 8;
-  
-  if (!isSleeping || Math.random() > 0.95) await sendWakatimeHeartbeat();
-  else logger.debug(`[WakaTime] Circadian sleep cycle active. Postponing heartbeat.`);
+let focusHeartbeatCount = 0;
 
-  const nextJitterMs = Math.floor(Math.random() * 25000) + 90000; 
+async function wakaLoop() {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+
+  // 1. Circadian Deep Sleep: 1:30 AM to 8:30 AM
+  const isNightSleep = (currentHour === 1 && currentMinute >= 30) || (currentHour >= 2 && currentHour < 8) || (currentHour === 8 && currentMinute < 30);
+  
+  // 2. Realistic Lunch Break: 1:00 PM to 1:45 PM
+  const isLunchBreak = (currentHour === 13 && currentMinute <= 45);
+
+  let nextJitterMs = Math.floor(Math.random() * 25000) + 85000; // 85s - 110s (within WakaTime 2-min window)
+
+  if (isNightSleep) {
+    logger.debug(`[WakaTime] Circadian sleep cycle active (1:30 AM - 8:30 AM). Resting.`);
+    nextJitterMs = 5 * 60 * 1000;
+  } else if (isLunchBreak) {
+    logger.info(`[WakaTime] Natural midday lunch break active (1:00 PM - 1:45 PM).`);
+    nextJitterMs = 4 * 60 * 1000;
+  } else {
+    // 3. Human Focus Rhythm: after ~25-35 continuous pulses (~45-55 mins), take a 5-minute break
+    focusHeartbeatCount++;
+    if (focusHeartbeatCount > (Math.floor(Math.random() * 10) + 25)) {
+      focusHeartbeatCount = 0;
+      logger.info(`[WakaTime] Natural 5-minute focus pause (bio break / reviewing documentation).`);
+      nextJitterMs = (Math.floor(Math.random() * 3) + 4) * 60 * 1000;
+    } else {
+      await sendWakatimeHeartbeat();
+    }
+  }
+
   wakaTimeout = setTimeout(wakaLoop, nextJitterMs);
 }
 wakaLoop();
